@@ -1,0 +1,328 @@
+import { useState, useCallback, useRef } from 'react';
+import { useQuery } from '@apollo/client';
+import { Box, CircularProgress, Typography, Button, Chip } from '@mui/material';
+import FilterListOffIcon from '@mui/icons-material/FilterListOff';
+import SearchOffIcon from '@mui/icons-material/SearchOff';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { TopBar } from '@/shared/components/AppLayout/TopBar';
+import { StageSummary } from './StageSummary/StageSummary';
+import { FilterBar } from './FilterBar/FilterBar';
+import { InsightCard } from './InsightCard/InsightCard';
+import { OverviewMode } from './OverviewMode/OverviewMode';
+import { useBoardFilters } from '../hooks/useBoardFilters';
+import { useStageMove } from '../hooks/useStageMove';
+import { LIST_INSIGHTS, GET_STAGE_COUNTS } from '../graphql/queries';
+import type { Insight } from '@/shared/types/domain';
+import type { Stage } from '@/shared/types/domain';
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { useToast } from '@/shared/components/ui/Toast';
+import { ComponentErrorBoundary } from '@/shared/components/ErrorBoundary/ComponentErrorBoundary';
+import { useRealtime } from '@/features/realtime/RealtimeProvider';
+import { DetailDrawer } from '@/features/insight/components/DetailDrawer/DetailDrawer';
+import { InsightForm } from '@/features/insight/components/InsightForm/InsightForm';
+import { AdvancedFilterDrawer } from './AdvancedFilterDrawer';
+
+type ViewMode = 'list' | 'grid';
+
+interface InsightListData {
+  insightsCollection: {
+    edges: Array<{ node: Insight }>;
+    pageInfo: { hasNextPage: boolean; endCursor: string };
+    totalCount: number;
+  };
+}
+
+interface CountData {
+  observation: { totalCount: number };
+  insight: { totalCount: number };
+  actionable: { totalCount: number };
+  impact: { totalCount: number };
+}
+
+export function BoardPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const { getCardState } = useRealtime();
+  const { filters, setStage, setSearch, togglePriority, clearFilters, buildGraphQLFilter, hasActiveFilters } = useBoardFilters();
+
+  const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
+  const [editingInsight, setEditingInsight] = useState<Insight | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+
+  const listParentRef = useRef<HTMLDivElement>(null);
+
+  const graphqlFilter = buildGraphQLFilter();
+
+  const { data, loading, error, fetchMore, refetch } = useQuery<InsightListData>(LIST_INSIGHTS, {
+    variables: { filter: graphqlFilter, first: 30 },
+    fetchPolicy: 'cache-and-network',
+    nextFetchPolicy: 'cache-first',
+    notifyOnNetworkStatusChange: true,
+  });
+
+  const { data: countsData, loading: countsLoading, refetch: refetchCounts } = useQuery<CountData>(GET_STAGE_COUNTS, {
+    fetchPolicy: 'cache-and-network',
+  });
+
+  const refetchAll = () => {
+    refetch();
+    refetchCounts();
+  };
+
+  const counts: Record<Stage, number> = {
+    observation: countsData?.observation?.totalCount ?? 0,
+    insight: countsData?.insight?.totalCount ?? 0,
+    actionable: countsData?.actionable?.totalCount ?? 0,
+    impact: countsData?.impact?.totalCount ?? 0,
+  };
+
+  const insights = data?.insightsCollection?.edges?.map((e) => e.node) ?? [];
+  const hasNextPage = data?.insightsCollection?.pageInfo?.hasNextPage ?? false;
+  const activeCount = counts[filters.stage];
+
+  const loadMore = useCallback(() => {
+    if (!hasNextPage || loading) return;
+    fetchMore({ variables: { cursor: data?.insightsCollection?.pageInfo?.endCursor } });
+  }, [hasNextPage, loading, fetchMore, data]);
+
+  // Virtualizer for list view only
+  const rowVirtualizer = useVirtualizer({
+    count: hasNextPage ? insights.length + 1 : insights.length,
+    getScrollElement: () => listParentRef.current,
+    estimateSize: () => 72,
+    overscan: 8,
+    onChange: (instance) => {
+      const lastItem = instance.getVirtualItems().at(-1);
+      if (lastItem && lastItem.index >= insights.length - 1 && hasNextPage && !loading) {
+        loadMore();
+      }
+    },
+  });
+
+  const { move } = useStageMove({
+    userId: user?.id ?? '',
+    onSuccess: (_, toStage) => { toast(`Moved to ${toStage}`, 'success'); refetchAll(); },
+    onError: (msg) => toast(msg, 'error'),
+  });
+
+  const insightsByStage = insights.reduce<Partial<Record<Stage, Insight[]>>>((acc, ins) => {
+    if (!acc[ins.stage]) acc[ins.stage] = [];
+    acc[ins.stage]!.push(ins);
+    return acc;
+  }, {});
+
+  if (error) {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 8, gap: 2 }}>
+        <Typography color="error">Failed to load insights</Typography>
+        <Button variant="outlined" onClick={() => refetch()}>Retry</Button>
+      </Box>
+    );
+  }
+
+  const emptyState = hasActiveFilters ? (
+    <Box sx={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      pt: 10, pb: 4, gap: 2,
+    }}>
+      <Box sx={{
+        width: 64, height: 64, borderRadius: '16px',
+        bgcolor: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <SearchOffIcon sx={{ fontSize: 32, color: '#6366F1' }} />
+      </Box>
+      <Box sx={{ textAlign: 'center' }}>
+        <Typography sx={{ fontWeight: 600, color: '#111827', mb: 0.5 }}>
+          No results match your filters
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 280, mx: 'auto' }}>
+          Try adjusting or clearing your filters to see more insights
+        </Typography>
+      </Box>
+      {/* Show active filter chips */}
+      <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 360 }}>
+        {filters.priorities.map((p) => (
+          <Chip key={p} label={p} size="small" sx={{ bgcolor: '#EEF2FF', color: '#4F46E5', fontWeight: 600, fontSize: '0.72rem' }} />
+        ))}
+        {filters.categoryId && (
+          <Chip label={`Category: ${filters.categoryId}`} size="small" sx={{ bgcolor: '#F0FDF4', color: '#16A34A', fontSize: '0.72rem' }} />
+        )}
+        {filters.dateFrom && (
+          <Chip label={`From: ${filters.dateFrom}`} size="small" sx={{ bgcolor: '#FFF7ED', color: '#C2410C', fontSize: '0.72rem' }} />
+        )}
+        {filters.dateTo && (
+          <Chip label={`To: ${filters.dateTo}`} size="small" sx={{ bgcolor: '#FFF7ED', color: '#C2410C', fontSize: '0.72rem' }} />
+        )}
+        {filters.search && (
+          <Chip label={`"${filters.search}"`} size="small" sx={{ bgcolor: '#F8FAFC', color: '#475569', fontSize: '0.72rem' }} />
+        )}
+      </Box>
+      <Button
+        variant="contained"
+        startIcon={<FilterListOffIcon />}
+        onClick={clearFilters}
+        sx={{
+          bgcolor: '#4F46E5', textTransform: 'none', borderRadius: '8px',
+          fontWeight: 600, fontSize: '0.875rem', boxShadow: 'none',
+          '&:hover': { bgcolor: '#4338CA', boxShadow: 'none' },
+        }}
+      >
+        Clear all filters
+      </Button>
+    </Box>
+  ) : (
+    <Box sx={{ textAlign: 'center', pt: 8, color: 'text.secondary' }}>
+      <Typography variant="body2">No insights in this stage</Typography>
+      <Button sx={{ mt: 1 }} onClick={() => setShowCreateForm(true)}>+ Log insight</Button>
+    </Box>
+  );
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <TopBar
+        activeStage={filters.stage}
+        activeCount={activeCount}
+        search={filters.search}
+        onSearchChange={setSearch}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onLogInsight={() => setShowCreateForm(true)}
+      />
+
+      <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Shared header (stage summary + filter) — always visible, not scrolled */}
+        <Box sx={{ px: 3, pt: 2.5 }}>
+          <StageSummary counts={counts} activeStage={filters.stage} loading={countsLoading} onStageChange={setStage} />
+          <FilterBar
+            filters={filters}
+            onPriorityToggle={togglePriority}
+            onClearAll={clearFilters}
+            hasActiveFilters={hasActiveFilters}
+            onOpenAdvanced={() => setShowAdvancedFilter(true)}
+          />
+        </Box>
+
+        {/* Scrollable content */}
+        {viewMode === 'overview' ? (
+          <Box sx={{ flex: 1, overflowY: 'auto', px: 3, pb: 3 }}>
+            <OverviewMode
+              insightsByStage={insightsByStage}
+              onStageSelect={(stage) => { setStage(stage); setViewMode('list'); }}
+            />
+          </Box>
+        ) : viewMode === 'grid' ? (
+          <Box sx={{ flex: 1, overflowY: 'auto', px: 3, pb: 3 }}>
+            {loading && insights.length === 0 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', pt: 6 }}>
+                <CircularProgress sx={{ color: '#3F51B5' }} />
+              </Box>
+            ) : insights.length === 0 ? emptyState : (
+              <Box sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                gap: 1.5,
+              }}>
+                {insights.map((insight) => {
+                  const cardState = getCardState(insight.id);
+                  return (
+                    <ComponentErrorBoundary key={insight.id}>
+                      <InsightCard
+                        insight={insight}
+                        view="grid"
+                        onSwipe={(dir) => move(insight, dir)}
+                        onClick={() => setSelectedInsight(insight)}
+                        viewingUsers={cardState.viewingUsers}
+                        editingUser={cardState.editingUser}
+                        isBeingSwiped={cardState.isBeingSwiped}
+                      />
+                    </ComponentErrorBoundary>
+                  );
+                })}
+                {hasNextPage && (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, gridColumn: '1 / -1' }}>
+                    <Button onClick={loadMore} disabled={loading} variant="outlined" size="small">
+                      {loading ? <CircularProgress size={16} /> : 'Load more'}
+                    </Button>
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
+        ) : (
+          /* List view — virtualised */
+          <Box ref={listParentRef} sx={{ flex: 1, overflowY: 'auto', px: 3, pb: 3 }}>
+            {loading && insights.length === 0 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', pt: 6 }}>
+                <CircularProgress sx={{ color: '#3F51B5' }} />
+              </Box>
+            ) : insights.length === 0 ? emptyState : (
+              <Box style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const isLoader = virtualRow.index >= insights.length;
+                  const insight = insights[virtualRow.index];
+                  return (
+                    <Box
+                      key={virtualRow.key}
+                      data-index={virtualRow.index}
+                      ref={rowVirtualizer.measureElement}
+                      style={{
+                        position: 'absolute', top: 0, left: 0, width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                    >
+                      {isLoader ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                          <CircularProgress size={24} sx={{ color: '#3F51B5' }} />
+                        </Box>
+                      ) : (
+                        <ComponentErrorBoundary>
+                          {(() => {
+                            const cardState = getCardState(insight.id);
+                            return (
+                              <InsightCard
+                                insight={insight}
+                                view="list"
+                                onSwipe={(dir) => move(insight, dir)}
+                                onClick={() => setSelectedInsight(insight)}
+                                viewingUsers={cardState.viewingUsers}
+                                editingUser={cardState.editingUser}
+                                isBeingSwiped={cardState.isBeingSwiped}
+                              />
+                            );
+                          })()}
+                        </ComponentErrorBoundary>
+                      )}
+                    </Box>
+                  );
+                })}
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
+
+      {selectedInsight && (
+        <DetailDrawer
+          insight={selectedInsight}
+          open
+          onClose={() => setSelectedInsight(null)}
+          onEdit={(ins) => { setSelectedInsight(null); setEditingInsight(ins); }}
+          onMoved={refetchAll}
+        />
+      )}
+      {(showCreateForm || editingInsight) && (
+        <InsightForm
+          insight={editingInsight ?? undefined}
+          open
+          onClose={() => { setShowCreateForm(false); setEditingInsight(null); }}
+          onSaved={() => { setShowCreateForm(false); setEditingInsight(null); refetchAll(); }}
+        />
+      )}
+      {showAdvancedFilter && (
+        <AdvancedFilterDrawer open onClose={() => setShowAdvancedFilter(false)} />
+      )}
+    </Box>
+  );
+}

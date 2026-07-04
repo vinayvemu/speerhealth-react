@@ -1,0 +1,259 @@
+/* ─── Reset & Page ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  min-height: 100vh;
+  background: #dce8ef;
+  font-family: 'Segoe UI', 'Trebuchet MS', sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+/* ─── Card shell ────────────────────────────────────────────── */
+.doctor-card {
+  position: relative;
+  width: 500px;
+  height: 285px;
+  background: #ffffff;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow:
+    0 2px 6px  rgba(0, 0, 0, 0.08),
+    0 10px 30px rgba(0, 0, 0, 0.13),
+    0 32px 70px rgba(0, 0, 0, 0.10);
+}
+
+/* ─── Geometric accent: teal diagonal right section ─────────── */
+.accent-tr {
+  position: absolute;
+  top: 0; right: 0;
+  width: 52%;
+  height: 100%;
+  background: #1AAECE;
+  clip-path: polygon(32% 0%, 100% 0%, 100% 100%, 10% 100%);
+  border-radius: 0 16px 16px 0;
+  z-index: 1;
+}
+
+/* Dark navy corner triangle */
+.accent-tr-dark {
+  position: absolute;
+  top: 0; right: 0;
+  width: 22%;
+  height: 50%;
+  background: #163866;
+  clip-path: polygon(58% 0%, 100% 0%, 100% 100%);
+  border-radius: 0 16px 0 0;
+  z-index: 2;
+}
+
+/* Small teal triangle – bottom left */
+.accent-bl {
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 90px;
+  height: 44px;
+  background: #1AAECE;
+  clip-path: polygon(0 0, 72% 100%, 0 100%);
+  border-radius: 0 0 0 16px;
+  z-index: 1;
+}
+
+/* ─── Intersecting circles decoration ───────────────────────── */
+.circle {
+  position: absolute;
+  border-radius: 50%;
+  background: transparent;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Positions are tuned so circles cluster in the right blue section */
+.c1 { width: 160px; height: 160px; top: -40px;  left: 268px; }
+.c2 { width: 120px; height: 120px; top:  90px;  left: 350px; }
+.c3 { width: 145px; height: 145px; top: 155px;  left: 258px; }
+.c4 { width:  88px; height:  88px; top:   8px;  left: 390px; }
+.c5 { width: 108px; height: 108px; top: 188px;  left: 352px; }
+.c6 { width: 165px; height: 165px; top:  70px;  left: 318px; }
+
+/* ─── Left content ──────────────────────────────────────────── */
+.card-content {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  padding: 20px 22px 16px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  /* Only fill the left ~60% to not overlap brand */
+  width: 60%;
+}
+
+/* ─── Header: avatar + name ─────────────────────────────────── */
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.avatar {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1AAECE, #0e7fa8);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(26,174,206,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+}
+
+.header-text { flex: 1; }
+
+.doctor-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a2540;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.doctor-spec {
+  font-size: 11px;
+  color: #1AAECE;
+  margin-top: 3px;
+  letter-spacing: 0.06em;
+}
+
+.spec-line {
+  margin-top: 5px;
+  height: 2px;
+  width: 80px;
+  background: linear-gradient(90deg, #1AAECE, transparent);
+  border-radius: 2px;
+}
+
+/* ─── Favourite toggle ──────────────────────────────────────── */
+.fav-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: #ccc;
+  line-height: 1;
+  padding: 0;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: color 0.2s, transform 0.15s;
+}
+.fav-btn:hover { transform: scale(1.2); color: #f0c030; }
+.fav-btn.active { color: #f5c518; }
+
+/* ─── Info rows ─────────────────────────────────────────────── */
+.info-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-badge {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #1AAECE, #0e86ac);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  box-shadow: 0 2px 5px rgba(26,174,206,0.3);
+}
+
+.info-text {
+  font-size: 11px;
+  color: #444;
+  line-height: 1.3;
+}
+
+.hospital-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  display: block;
+}
+
+/* ─── Card footer: tags + CTA ───────────────────────────────── */
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ─── Tags ──────────────────────────────────────────────────── */
+.tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: nowrap;
+}
+
+.tag {
+  font-size: 9px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1AAECE;
+  border: 1px solid #1AAECE;
+  background: rgba(26, 174, 206, 0.07);
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* ─── View Profile CTA ──────────────────────────────────────── */
+.view-btn {
+  background: linear-gradient(135deg, #1AAECE, #0e86ac);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  color: #ffffff;
+  font-family: 'Segoe UI', sans-serif;
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(26,174,206,0.35);
+  transition: all 0.2s ease;
+}
+
+.view-btn:hover {
+  background: linear-gradient(135deg, #14bed8, #0a729a);
+  box-shadow: 0 5px 16px rgba(26,174,206,0.5);
+  transform: translateY(-1px);
+}
+
+.view-btn:active { transform: translateY(0); }
