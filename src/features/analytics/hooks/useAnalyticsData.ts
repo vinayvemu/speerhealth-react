@@ -31,9 +31,12 @@ interface InsightsPage {
   pageInfo: PageInfo;
 }
 
+interface AnalyticsFilter {
+  createdAt?: { gte?: string; lte?: string };
+}
+
 async function fetchOnePage(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  filter: Record<string, any> | undefined,
+  filter: AnalyticsFilter | undefined,
   cursor: string | null,
 ): Promise<InsightsPage> {
   const result = await apolloClient.query<{ insightsCollection: InsightsPage }>({
@@ -49,12 +52,11 @@ async function fetchAllInsights(dateRange?: DateRange): Promise<AnalyticsInsight
   let cursor: string | null = null;
 
   // Build filter from date range
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let filter: Record<string, any> | undefined;
+  let filter: AnalyticsFilter | undefined;
   if (dateRange?.dateFrom || dateRange?.dateTo) {
     filter = { createdAt: {} };
-    if (dateRange.dateFrom) filter.createdAt.gte = `${dateRange.dateFrom}T00:00:00Z`;
-    if (dateRange.dateTo) filter.createdAt.lte = `${dateRange.dateTo}T23:59:59Z`;
+    if (dateRange.dateFrom) filter.createdAt!.gte = `${dateRange.dateFrom}T00:00:00Z`;
+    if (dateRange.dateTo) filter.createdAt!.lte = `${dateRange.dateTo}T23:59:59Z`;
   }
 
   let page: InsightsPage;

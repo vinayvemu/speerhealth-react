@@ -3,6 +3,16 @@ import { useCallback } from 'react';
 import type { Stage, Priority } from '@/shared/types/domain';
 import { STAGES } from '@/shared/types/domain';
 
+interface InsightFilter {
+  stage?: { eq: string };
+  isArchived?: { eq: boolean };
+  or?: Array<{ title?: { ilike: string }; description?: { ilike: string } }>;
+  priority?: { in: string[] };
+  categoryId?: { eq: string };
+  hcpId?: { eq: string };
+  createdAt?: { gte?: string; lte?: string };
+}
+
 export interface BoardFilters {
   stage: Stage;
   search: string;
@@ -135,8 +145,7 @@ export function useBoardFilters() {
 
   // Build GraphQL filter object from URL state
   const buildGraphQLFilter = useCallback(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const filter: Record<string, any> = {
+    const filter: InsightFilter = {
       stage: { eq: filters.stage },
       isArchived: { eq: false },
     };
