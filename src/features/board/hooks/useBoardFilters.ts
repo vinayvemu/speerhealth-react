@@ -83,23 +83,41 @@ export function useBoardFilters() {
     setSearchParams({ stage: filters.stage }, { replace: true });
   }, [setSearchParams, filters.stage]);
 
+  // Clear a single filter param (with optional value for multi-value params like 'p', 'tag')
+  const clearFilter = useCallback((paramKey: string, value?: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value !== undefined) {
+        // Multi-value param: remove only the specific value
+        const remaining = next.getAll(paramKey).filter((v) => v !== value);
+        next.delete(paramKey);
+        remaining.forEach((v) => next.append(paramKey, v));
+      } else {
+        next.delete(paramKey);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   // Commits advanced filter values all at once (called by AdvancedFilterDrawer on Apply)
   const applyAdvancedFilters = useCallback((values: {
     categoryId: string | null;
     priorities: Priority[];
     dateFrom: string | null;
     dateTo: string | null;
+    hcpId?: string | null;
+    tagIds?: string[];
   }) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      // category
       if (values.categoryId) next.set('cat', values.categoryId); else next.delete('cat');
-      // priorities
       next.delete('p');
       values.priorities.forEach((p) => next.append('p', p));
-      // dates
       if (values.dateFrom) next.set('from', values.dateFrom); else next.delete('from');
       if (values.dateTo) next.set('to', values.dateTo); else next.delete('to');
+      if (values.hcpId) next.set('hcp', values.hcpId); else next.delete('hcp');
+      next.delete('tag');
+      (values.tagIds ?? []).forEach((id) => next.append('tag', id));
       return next;
     }, { replace: true });
   }, [setSearchParams]);
@@ -126,6 +144,12 @@ export function useBoardFilters() {
     if (filters.hcpId) {
       filter.hcpId = { eq: filters.hcpId };
     }
+    if (filters.tags.length > 0) {
+      // Filter by tag via the junction table — GQL: insightTagsCollection.some(tag.id in tags)
+      filter.insightTagsCollection = {
+        some: { tagId: { in: filters.tags } },
+      };
+    }
     if (filters.dateFrom) {
       filter.createdAt = { ...filter.createdAt, gte: filters.dateFrom };
     }
@@ -143,5 +167,5 @@ export function useBoardFilters() {
     filters.dateFrom !== null ||
     filters.dateTo !== null;
 
-  return { filters, setStage, setSearch, togglePriority, setFilter, clearFilters, applyAdvancedFilters, buildGraphQLFilter, hasActiveFilters };
+  return { filters, setStage, setSearch, togglePriority, setFilter, clearFilters, clearFilter, applyAdvancedFilters, buildGraphQLFilter, hasActiveFilters };
 }

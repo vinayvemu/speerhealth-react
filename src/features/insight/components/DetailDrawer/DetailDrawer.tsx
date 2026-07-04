@@ -15,6 +15,7 @@ import { useToast } from '@/shared/components/ui/Toast';
 import { echoSuppressor } from '@/lib/supabase/echoSuppression';
 import { formatDistanceToNow } from '@/features/board/utils/time';
 import { AppDrawer } from '@/shared/components/ui/AppDrawer';
+import { DrugContext } from './DrugContext';
 
 interface Props {
   insight: Insight;
@@ -185,6 +186,16 @@ export function DetailDrawer({ insight, open, onClose, onEdit, onMoved }: Props)
         Created {formatDistanceToNow(insight.createdAt)}
         {insight.updatedAt !== insight.createdAt && ` · Updated ${formatDistanceToNow(insight.updatedAt)}`}
       </Typography>
+
+      <Divider sx={{ borderColor: '#EAECF5' }} />
+
+      {/* Drug Context (B2 bonus) */}
+      {insight.drugName && (
+        <>
+          <Divider sx={{ borderColor: '#EAECF5' }} />
+          <DrugContext drugName={insight.drugName} />
+        </>
+      )}
 
       <Divider sx={{ borderColor: '#EAECF5' }} />
 

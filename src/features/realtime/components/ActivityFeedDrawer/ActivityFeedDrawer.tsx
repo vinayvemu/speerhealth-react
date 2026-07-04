@@ -6,6 +6,11 @@ import type { FeedActivity } from '../../hooks/useActivityFeed';
 import { formatDistanceToNow } from '@/features/board/utils/time';
 import { useRealtime } from '../../RealtimeProvider';
 import { AppDrawer } from '@/shared/components/ui/AppDrawer';
+import type { Stage } from '@/shared/types/domain';
+
+interface Props {
+  onActivityClick?: (stage: Stage) => void;
+}
 
 function ActivityIcon({ activity }: { activity: FeedActivity }) {
   if (activity.action === 'created') return <AddCircleOutlineIcon sx={{ fontSize: 16, color: '#4CAF50' }} />;
@@ -20,8 +25,22 @@ function activityText(a: FeedActivity): string {
   return 'Updated insight';
 }
 
-export function ActivityFeedDrawer() {
+function getActivityStage(a: FeedActivity): Stage {
+  // If it's a stage move, navigate to the destination stage
+  if (a.fieldName === 'stage' && a.newValue) return a.newValue as Stage;
+  // Otherwise navigate to whatever stage context we have, default to observation
+  return 'observation';
+}
+
+export function ActivityFeedDrawer({ onActivityClick }: Props) {
   const { activities, activityFeedOpen, closeActivityFeed } = useRealtime();
+
+  const handleItemClick = (activity: FeedActivity) => {
+    if (onActivityClick) {
+      onActivityClick(getActivityStage(activity));
+      closeActivityFeed();
+    }
+  };
 
   return (
     <AppDrawer
@@ -38,7 +57,16 @@ export function ActivityFeedDrawer() {
         <List disablePadding sx={{ mx: -3, mt: -2.5 }}>
           {activities.map((activity, i) => (
             <Box key={activity.id}>
-              <ListItem alignItems="flex-start" sx={{ py: 1.5, px: 3 }}>
+              <ListItem
+                alignItems="flex-start"
+                onClick={() => handleItemClick(activity)}
+                sx={{
+                  py: 1.5, px: 3,
+                  cursor: onActivityClick ? 'pointer' : 'default',
+                  transition: 'background-color 0.12s',
+                  '&:hover': onActivityClick ? { bgcolor: '#F5F5F5' } : {},
+                }}
+              >
                 <ListItemAvatar>
                   <Avatar sx={{ width: 32, height: 32, bgcolor: '#E8EAF6' }}>
                     <ActivityIcon activity={activity} />
@@ -46,7 +74,7 @@ export function ActivityFeedDrawer() {
                 </ListItemAvatar>
                 <ListItemText
                   primary={
-                    <Typography variant="body2" fontWeight={500} color="#1A237E">
+                    <Typography variant="body2" sx={{ fontWeight: 500, color: '#1A237E' }}>
                       {activityText(activity)}
                     </Typography>
                   }

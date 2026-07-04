@@ -8,17 +8,26 @@ import type { Stage } from '@/shared/types/domain';
 import { STAGE_LABELS } from '@/shared/types/domain';
 
 interface PageInfo { hasNextPage: boolean; endCursor: string }
+interface ExportPage { edges: Array<{ node: AnalyticsInsight }>; pageInfo: PageInfo }
+
+async function fetchExportPage(cursor: string | null): Promise<ExportPage> {
+  const result = await apolloClient.query<{ insightsCollection: ExportPage }>({
+    query: GET_ALL_INSIGHTS_FOR_ANALYTICS,
+    variables: { cursor },
+    fetchPolicy: 'network-only',
+  });
+  return result.data.insightsCollection;
+}
 
 async function fetchAllForExport(): Promise<AnalyticsInsight[]> {
   const all: AnalyticsInsight[] = [];
   let cursor: string | null = null;
+  let page: ExportPage;
   do {
     // eslint-disable-next-line no-await-in-loop
-    const { data } = await apolloClient.query<{
-      insightsCollection: { edges: Array<{ node: AnalyticsInsight }>; pageInfo: PageInfo };
-    }>({ query: GET_ALL_INSIGHTS_FOR_ANALYTICS, variables: { cursor }, fetchPolicy: 'network-only' });
-    all.push(...data.insightsCollection.edges.map((e) => e.node));
-    cursor = data.insightsCollection.pageInfo.hasNextPage ? data.insightsCollection.pageInfo.endCursor : null;
+    page = await fetchExportPage(cursor);
+    page.edges.forEach((e) => all.push(e.node));
+    cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
   } while (cursor !== null);
   return all;
 }

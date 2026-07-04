@@ -9,13 +9,16 @@ const FIELD_SX = { bgcolor: '#fff', borderRadius: 1 } as const;
 const LABEL_SX = { fontSize: '0.8125rem' } as const;
 
 /** TextField with consistent 13px sizing and white bg baked in */
-export function FormTextField({ InputLabelProps, inputProps, sx, ...props }: TextFieldProps) {
+export function FormTextField({ sx, slotProps, ...props }: TextFieldProps) {
   return (
     <TextField
       size="small"
-      InputLabelProps={{ sx: LABEL_SX, ...InputLabelProps }}
-      inputProps={{ style: { fontSize: '0.8125rem' }, ...inputProps }}
       sx={{ ...FIELD_SX, ...sx }}
+      slotProps={{
+        inputLabel: { sx: LABEL_SX, ...((slotProps?.inputLabel as object) ?? {}) },
+        htmlInput: { style: { fontSize: '0.8125rem' }, ...((slotProps?.htmlInput as object) ?? {}) },
+        ...slotProps,
+      }}
       {...props}
     />
   );

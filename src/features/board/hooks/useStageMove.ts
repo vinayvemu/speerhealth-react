@@ -5,7 +5,7 @@ import { echoSuppressor } from '@/lib/supabase/echoSuppression';
 import { apolloClient } from '@/lib/apollo/client';
 import { nextStage, prevStage } from '@/shared/types/domain';
 import type { Stage, Insight } from '@/shared/types/domain';
-import { LIST_INSIGHTS, GET_STAGE_COUNTS } from '../graphql/queries';
+import { LIST_INSIGHTS, GET_STAGE_COUNTS, GET_INSIGHT } from '../graphql/queries';
 
 interface UseStageMoveOptions {
   onSuccess?: (insight: Insight, toStage: Stage) => void;
@@ -18,22 +18,35 @@ export function useStageMove({ onSuccess, onError, userId }: UseStageMoveOptions
   const [logActivity] = useMutation(LOG_ACTIVITY);
   const pendingRef = useRef<Set<string>>(new Set());
 
-  const move = useCallback(async (insight: Insight, direction: 'forward' | 'backward') => {
-    const toStage = direction === 'forward'
-      ? nextStage(insight.stage)
-      : prevStage(insight.stage);
-
-    if (!toStage) return; // already at boundary
-
+  const performMove = useCallback(async (insight: Insight, toStage: Stage) => {
     const insightId = insight.id;
-    if (pendingRef.current.has(insightId)) return; // prevent double-fire
+    if (pendingRef.current.has(insightId)) return;
 
     pendingRef.current.add(insightId);
+
+    // Concurrency check: fetch fresh record before committing the move
+    try {
+      const fresh = await apolloClient.query<{ insightsCollection: { edges: Array<{ node: { updatedAt: string } }> } }>({
+        query: GET_INSIGHT,
+        variables: { id: insightId },
+        fetchPolicy: 'network-only',
+      });
+      const freshUpdatedAt = fresh.data?.insightsCollection?.edges?.[0]?.node?.updatedAt;
+      if (freshUpdatedAt && freshUpdatedAt !== insight.updatedAt) {
+        // Another user updated this insight since it was loaded
+        pendingRef.current.delete(insightId);
+        onError?.('Insight was updated by another user — move cancelled');
+        apolloClient.refetchQueries({ include: [LIST_INSIGHTS, GET_STAGE_COUNTS] });
+        return;
+      }
+    } catch {
+      // Non-critical check failure — proceed with move
+    }
+
     echoSuppressor.tag(insightId);
 
-    // Optimistic cache update — remove from current stage list
     const fromStage = insight.stage;
-    evictFromStageCache(insightId, fromStage);
+    evictFromStageCache(insightId);
 
     try {
       const { data } = await updateInsight({
@@ -46,7 +59,6 @@ export function useStageMove({ onSuccess, onError, userId }: UseStageMoveOptions
       const updated = data?.updateInsightsCollection?.records?.[0] as Insight | undefined;
       if (!updated) throw new Error('No record returned');
 
-      // Log activity
       logActivity({
         variables: {
           objects: [{
@@ -62,22 +74,31 @@ export function useStageMove({ onSuccess, onError, userId }: UseStageMoveOptions
 
       onSuccess?.(updated, toStage);
     } catch (e) {
-      // Revert — add back to original stage
       console.error('[useStageMove] mutation failed', e);
-      apolloClient.refetchQueries({
-        include: [LIST_INSIGHTS, GET_STAGE_COUNTS],
-      });
+      apolloClient.refetchQueries({ include: [LIST_INSIGHTS, GET_STAGE_COUNTS] });
       onError?.('Failed to move insight — reverting');
     } finally {
       pendingRef.current.delete(insightId);
     }
   }, [updateInsight, logActivity, onSuccess, onError, userId]);
 
-  return { move };
+  const move = useCallback(async (insight: Insight, direction: 'forward' | 'backward') => {
+    const toStage = direction === 'forward'
+      ? nextStage(insight.stage)
+      : prevStage(insight.stage);
+    if (!toStage) return;
+    await performMove(insight, toStage);
+  }, [performMove]);
+
+  const moveToStage = useCallback(async (insight: Insight, toStage: Stage) => {
+    if (toStage === insight.stage) return;
+    await performMove(insight, toStage);
+  }, [performMove]);
+
+  return { move, moveToStage };
 }
 
-function evictFromStageCache(insightId: string, _stage: Stage) {
-  // Evict the specific insight from Apollo cache so it disappears immediately
+function evictFromStageCache(insightId: string) {
   apolloClient.cache.evict({
     id: apolloClient.cache.identify({ __typename: 'Insights', id: insightId }),
   });

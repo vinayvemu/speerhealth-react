@@ -48,7 +48,7 @@ function AppLayoutInner() {
         <Outlet />
       </Box>
 
-      <ActivityFeedDrawer />
+      <ActivityFeedDrawer onActivityClick={(stage) => setStage(stage)} />
     </Box>
   );
 }

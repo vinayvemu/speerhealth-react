@@ -3,6 +3,7 @@ import { useQuery } from '@apollo/client';
 import { Box, CircularProgress, Typography, Button, Chip } from '@mui/material';
 import FilterListOffIcon from '@mui/icons-material/FilterListOff';
 import SearchOffIcon from '@mui/icons-material/SearchOff';
+import CloseIcon from '@mui/icons-material/Close';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { TopBar } from '@/shared/components/AppLayout/TopBar';
 import { StageSummary } from './StageSummary/StageSummary';
@@ -10,6 +11,7 @@ import { FilterBar } from './FilterBar/FilterBar';
 import { InsightCard } from './InsightCard/InsightCard';
 import { OverviewMode } from './OverviewMode/OverviewMode';
 import { useBoardFilters } from '../hooks/useBoardFilters';
+import type { BoardFilters } from '../hooks/useBoardFilters';
 import { useStageMove } from '../hooks/useStageMove';
 import { LIST_INSIGHTS, GET_STAGE_COUNTS } from '../graphql/queries';
 import type { Insight } from '@/shared/types/domain';
@@ -21,8 +23,50 @@ import { useRealtime } from '@/features/realtime/RealtimeProvider';
 import { DetailDrawer } from '@/features/insight/components/DetailDrawer/DetailDrawer';
 import { InsightForm } from '@/features/insight/components/InsightForm/InsightForm';
 import { AdvancedFilterDrawer } from './AdvancedFilterDrawer';
+import { GET_CATEGORIES, GET_HCPS, GET_TAGS } from '../graphql/queries';
 
 type ViewMode = 'list' | 'grid';
+
+// ─── Active filter chips strip ────────────────────────────────────────────────
+
+function ActiveFilterChips({ filters, onClear }: {
+  filters: BoardFilters;
+  onClear: (key: string, value?: string) => void;
+}) {
+  const { data: catData } = useQuery(GET_CATEGORIES, { fetchPolicy: 'cache-first', skip: !filters.categoryId });
+  const { data: hcpData } = useQuery(GET_HCPS, { fetchPolicy: 'cache-first', skip: !filters.hcpId });
+  const { data: tagData } = useQuery(GET_TAGS, { fetchPolicy: 'cache-first', skip: filters.tags.length === 0 });
+
+  const catName = catData?.categoriesCollection?.edges?.find((e: { node: { id: string; name: string } }) => e.node.id === filters.categoryId)?.node.name ?? filters.categoryId;
+  const hcpName = hcpData?.hcpsCollection?.edges?.find((e: { node: { id: string; name: string } }) => e.node.id === filters.hcpId)?.node.name ?? filters.hcpId;
+  const tagMap = new Map<string, string>(
+    tagData?.tagsCollection?.edges?.map((e: { node: { id: string; name: string } }) => [e.node.id, e.node.name]) ?? []
+  );
+
+  const chips: Array<{ label: string; key: string; value?: string }> = [];
+  if (filters.categoryId) chips.push({ label: `Category: ${catName}`, key: 'cat' });
+  if (filters.hcpId) chips.push({ label: `HCP: ${hcpName}`, key: 'hcp' });
+  filters.priorities.forEach((p) => chips.push({ label: p, key: 'p', value: p }));
+  filters.tags.forEach((id) => chips.push({ label: `Tag: ${tagMap.get(id) ?? id}`, key: 'tag', value: id }));
+  if (filters.dateFrom) chips.push({ label: `From: ${filters.dateFrom}`, key: 'from' });
+  if (filters.dateTo) chips.push({ label: `To: ${filters.dateTo}`, key: 'to' });
+
+  if (chips.length === 0) return null;
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', px: 3, pb: 1 }}>
+      {chips.map((chip) => (
+        <Chip
+          key={`${chip.key}-${chip.value ?? ''}`}
+          label={chip.label}
+          size="small"
+          deleteIcon={<CloseIcon sx={{ fontSize: '12px !important' }} />}
+          onDelete={() => onClear(chip.key, chip.value)}
+          sx={{ bgcolor: '#EEF2FF', color: '#4338CA', fontSize: '0.72rem', fontWeight: 500, height: 22, '& .MuiChip-deleteIcon': { color: '#6366F1' } }}
+        />
+      ))}
+    </Box>
+  );
+}
 
 interface InsightListData {
   insightsCollection: {
@@ -42,8 +86,8 @@ interface CountData {
 export function BoardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { getCardState } = useRealtime();
-  const { filters, setStage, setSearch, togglePriority, clearFilters, buildGraphQLFilter, hasActiveFilters } = useBoardFilters();
+  const { getCardState, highlightedInsightId } = useRealtime();
+  const { filters, setStage, setSearch, togglePriority, clearFilters, clearFilter, buildGraphQLFilter, hasActiveFilters } = useBoardFilters();
 
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
   const [editingInsight, setEditingInsight] = useState<Insight | null>(null);
@@ -101,7 +145,7 @@ export function BoardPage() {
     },
   });
 
-  const { move } = useStageMove({
+  const { move, moveToStage } = useStageMove({
     userId: user?.id ?? '',
     onSuccess: (_, toStage) => { toast(`Moved to ${toStage}`, 'success'); refetchAll(); },
     onError: (msg) => toast(msg, 'error'),
@@ -203,6 +247,9 @@ export function BoardPage() {
             onOpenAdvanced={() => setShowAdvancedFilter(true)}
           />
         </Box>
+        {hasActiveFilters && (
+          <ActiveFilterChips filters={filters} onClear={clearFilter} />
+        )}
 
         {/* Scrollable content */}
         {viewMode === 'overview' ? (
@@ -232,10 +279,12 @@ export function BoardPage() {
                         insight={insight}
                         view="grid"
                         onSwipe={(dir) => move(insight, dir)}
+                        onMoveTo={(stage) => moveToStage(insight, stage as Stage)}
                         onClick={() => setSelectedInsight(insight)}
                         viewingUsers={cardState.viewingUsers}
                         editingUser={cardState.editingUser}
                         isBeingSwiped={cardState.isBeingSwiped}
+                        isHighlighted={highlightedInsightId === insight.id}
                       />
                     </ComponentErrorBoundary>
                   );
@@ -285,10 +334,12 @@ export function BoardPage() {
                                 insight={insight}
                                 view="list"
                                 onSwipe={(dir) => move(insight, dir)}
+                                onMoveTo={(stage) => moveToStage(insight, stage as Stage)}
                                 onClick={() => setSelectedInsight(insight)}
                                 viewingUsers={cardState.viewingUsers}
                                 editingUser={cardState.editingUser}
                                 isBeingSwiped={cardState.isBeingSwiped}
+                                isHighlighted={highlightedInsightId === insight.id}
                               />
                             );
                           })()}

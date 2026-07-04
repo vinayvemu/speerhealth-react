@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useLazyQuery, useQuery, useApolloClient } from '@apollo/client';
 import {
-  Box, Typography, MenuItem, Autocomplete, Chip, CircularProgress,
+  Box, Typography, MenuItem, Autocomplete, CircularProgress,
   Button, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import { insightSchema, type InsightFormValues } from '../../schemas/insightSchema';
@@ -313,8 +313,14 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
               <FormTextField
                 {...params}
                 label="Linked HCP"
-                inputProps={{ ...params.inputProps, style: { fontSize: '0.8125rem' } }}
-                InputProps={{ ...params.InputProps, endAdornment: hcpLoading ? <CircularProgress size={14} /> : params.InputProps?.endAdornment }}
+                slotProps={{
+                  ...params.slotProps,
+                  htmlInput: { ...params.slotProps?.htmlInput, style: { fontSize: '0.8125rem' } },
+                  input: {
+                    ...(params.slotProps?.input as object),
+                    endAdornment: hcpLoading ? <CircularProgress size={14} /> : (params.slotProps?.input as { endAdornment?: React.ReactNode })?.endAdornment,
+                  },
+                }}
               />
             )}
             renderOption={(props, o) => (
@@ -339,20 +345,18 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
           <Autocomplete
             multiple
             options={allTags}
-            getOptionLabel={(o) => o.name}
+            getOptionLabel={(o: Tag) => o.name}
             value={allTags.filter((t) => (field.value ?? []).includes(t.id))}
-            onChange={(_, v) => field.onChange(v.map((t) => t.id))}
-            renderTags={(v, getTagProps) =>
-              v.map((opt, idx) => (
-                <Chip label={opt.name} size="small" {...getTagProps({ index: idx })} key={opt.id}
-                  sx={{ fontSize: '0.7rem', height: 20 }} />
-              ))
-            }
+            onChange={(_, v: Tag[]) => field.onChange(v.map((t) => t.id))}
+            slotProps={{ chip: { size: 'small', sx: { fontSize: '0.7rem', height: 20 } } }}
             renderInput={(params) => (
               <FormTextField
                 {...params}
                 label="Tags"
-                inputProps={{ ...params.inputProps, style: { fontSize: '0.8125rem' } }}
+                slotProps={{
+                  ...params.slotProps,
+                  htmlInput: { ...params.slotProps?.htmlInput, style: { fontSize: '0.8125rem' } },
+                }}
               />
             )}
             aria-label="Select tags"

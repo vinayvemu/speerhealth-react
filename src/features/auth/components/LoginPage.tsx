@@ -66,7 +66,7 @@ export function LoginPage() {
           >
             <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: 22 }}>IB</Typography>
           </Box>
-          <Typography variant="h5" fontWeight={800} color="#1A237E">
+          <Typography variant="h5" sx={{ fontWeight: 800, color: '#1A237E' }}>
             InsightBoard
           </Typography>
           <Typography variant="body2" color="text.secondary">

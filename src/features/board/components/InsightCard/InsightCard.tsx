@@ -1,12 +1,12 @@
-import { useRef } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { useDrag } from '@use-gesture/react';
 import { useSpring, animated } from '@react-spring/web';
-import { Box, Typography, Chip, Tooltip, Paper } from '@mui/material';
+import { Box, Typography, Chip, Tooltip, Paper, Menu, MenuItem } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import MedicationIcon from '@mui/icons-material/Medication';
 import type { Insight } from '@/shared/types/domain';
-import { PRIORITY_COLORS } from '@/shared/types/domain';
+import { PRIORITY_COLORS, STAGES } from '@/shared/types/domain';
 import { nextStage, prevStage } from '@/shared/types/domain';
 import { formatDistanceToNow } from '@/features/board/utils/time';
 import { useRealtime } from '@/features/realtime/RealtimeProvider';
@@ -46,33 +46,66 @@ interface Props {
   insight: Insight;
   onSwipe: (direction: 'forward' | 'backward') => void;
   onClick: () => void;
+  onMoveTo?: (stage: string) => void;
   view?: 'list' | 'grid';
   viewingUsers?: Array<{ userId: string; name: string }>;
   editingUser?: { userId: string; name: string } | null;
   isBeingSwiped?: boolean;
+  isHighlighted?: boolean;
 }
 
 // ─── Grid card ───────────────────────────────────────────────────────────────
 
-function GridCard({ insight, onClick, editingUser, viewingUsers = [], isBeingSwiped = false }: Omit<Props, 'onSwipe' | 'view'>) {
+function GridCard({ insight, onClick, onMoveTo, editingUser, viewingUsers = [], isBeingSwiped = false, isHighlighted = false }: Omit<Props, 'onSwipe' | 'view'>) {
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    longPressTimer.current = setTimeout(() => {
+      setMenuAnchor(e.currentTarget as HTMLElement);
+    }, 500);
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+  }, []);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenuAnchor(e.currentTarget as HTMLElement);
+  }, []);
+
+  const otherStages = STAGES.filter((s) => s !== insight.stage);
   const p = PRIORITY_COLORS[insight.priority];
   const catColors = insight.category ? getCatColors(insight.category.name) : null;
   const tags = insight.tags ?? [];
 
   return (
+    <>
     <Paper
       elevation={0}
       onClick={onClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+      onContextMenu={handleContextMenu}
       sx={{
         borderLeft: `3px solid ${p.text}`,
         borderRadius: '10px',
         p: 2,
         cursor: 'pointer',
-        bgcolor: '#fff',
+        bgcolor: isHighlighted ? '#FFFDE7' : '#fff',
         boxShadow: isBeingSwiped
           ? '0 0 0 2px #3F51B5'
+          : isHighlighted
+          ? '0 0 0 2px #FFC107'
           : '0 1px 4px rgba(13,23,41,0.07)',
-        transition: 'box-shadow 0.14s, transform 0.14s',
+        transition: 'box-shadow 0.14s, transform 0.14s, background-color 0.3s',
+        animation: isHighlighted ? 'cardFlash 1.5s ease-out' : 'none',
+        '@keyframes cardFlash': {
+          '0%': { backgroundColor: '#FFF9C4' },
+          '100%': { backgroundColor: '#fff' },
+        },
         '&:hover': { boxShadow: '0 4px 18px rgba(63,81,181,0.14)', transform: 'translateY(-1px)' },
         display: 'flex',
         flexDirection: 'column',
@@ -161,15 +194,29 @@ function GridCard({ insight, onClick, editingUser, viewingUsers = [], isBeingSwi
         </Box>
       </Box>
     </Paper>
+    {onMoveTo && (
+      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
+        <MenuItem disabled sx={{ fontSize: '0.75rem', color: '#90A4AE', py: 0.5 }}>Move to…</MenuItem>
+        {otherStages.map((s) => (
+          <MenuItem key={s} onClick={() => { setMenuAnchor(null); onMoveTo(s); }} sx={{ fontSize: '0.875rem' }}>
+            {s}
+          </MenuItem>
+        ))}
+      </Menu>
+    )}
+    </>
   );
 }
 
 // ─── List card (swipeable) ────────────────────────────────────────────────────
 
-export function InsightCard({ insight, onSwipe, onClick, view = 'list', viewingUsers = [], editingUser = null, isBeingSwiped = false }: Props) {
+export function InsightCard({ insight, onSwipe, onClick, onMoveTo, view = 'list', viewingUsers = [], editingUser = null, isBeingSwiped = false, isHighlighted = false }: Props) {
   const isDragging = useRef(false);
   const { broadcastSwiping, broadcastStoppedSwiping } = useRealtime();
   const p = PRIORITY_COLORS[insight.priority];
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const otherStages = STAGES.filter((s) => s !== insight.stage);
 
   const canGoForward = nextStage(insight.stage) !== null;
   const canGoBack = prevStage(insight.stage) !== null;
@@ -201,17 +248,31 @@ export function InsightCard({ insight, onSwipe, onClick, view = 'list', viewingU
   );
 
   if (view === 'grid') {
-    return <GridCard insight={insight} onClick={onClick} viewingUsers={viewingUsers} editingUser={editingUser} isBeingSwiped={isBeingSwiped} />;
+    return <GridCard insight={insight} onClick={onClick} onMoveTo={onMoveTo} viewingUsers={viewingUsers} editingUser={editingUser} isBeingSwiped={isBeingSwiped} isHighlighted={isHighlighted} />;
   }
 
   const handleClick = () => { if (!isDragging.current) onClick(); };
+  const handlePointerDown = (e: React.PointerEvent) => {
+    longPressTimer.current = setTimeout(() => setMenuAnchor(e.currentTarget as HTMLElement), 500);
+  };
+  const handlePointerUp = () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
+  const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setMenuAnchor(e.currentTarget as HTMLElement); };
   const catColors = insight.category ? getCatColors(insight.category.name) : null;
   const tags = insight.tags ?? [];
   const hcpIni = insight.hcp ? initials(insight.hcp.name) : '';
   const hcpBg = insight.hcp ? avatarBg(insight.hcp.name) : '#607D8B';
 
   return (
-    <animated.div {...bind()} style={{ x, touchAction: 'pan-y' }} onClick={handleClick}>
+    <>
+    <animated.div
+      {...bind()}
+      style={{ x, touchAction: 'pan-y' }}
+      onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+      onContextMenu={handleContextMenu}
+    >
       <Box
         sx={{
           bgcolor: '#fff',
@@ -222,15 +283,26 @@ export function InsightCard({ insight, onSwipe, onClick, view = 'list', viewingU
           gap: 1.5,
           px: 1.75, py: 1.125,
           borderLeft: `3px solid ${p.text}`,
+          bgcolor: isHighlighted ? '#FFFDE7' : '#fff',
           boxShadow: isBeingSwiped
             ? '0 0 0 2px #3F51B5, 0 2px 8px rgba(63,81,181,0.15)'
+            : isHighlighted
+            ? '0 0 0 2px #FFC107'
             : '0 1px 3px rgba(13,23,41,0.06)',
           cursor: 'pointer',
-          transition: 'box-shadow 0.14s, transform 0.14s',
-          animation: isBeingSwiped ? 'ibPulse 1.2s infinite' : 'none',
+          transition: 'box-shadow 0.14s, transform 0.14s, background-color 0.3s',
+          animation: isBeingSwiped
+            ? 'ibPulse 1.2s infinite'
+            : isHighlighted
+            ? 'cardFlash 1.5s ease-out'
+            : 'none',
           '@keyframes ibPulse': {
             '0%, 100%': { boxShadow: '0 0 0 2px #3F51B5' },
             '50%': { boxShadow: '0 0 0 2px #9FA8DA' },
+          },
+          '@keyframes cardFlash': {
+            '0%': { backgroundColor: '#FFF9C4' },
+            '100%': { backgroundColor: '#fff' },
           },
           '&:hover': { boxShadow: '0 4px 18px rgba(63,81,181,0.13)', transform: 'translateY(-1px)' },
         }}
@@ -266,7 +338,8 @@ export function InsightCard({ insight, onSwipe, onClick, view = 'list', viewingU
           )}
           <Typography sx={{
             fontSize: '0.9375rem', fontWeight: 500, color: '#0D1729',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', mb: 0.35,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden', mb: 0.35,
           }}>
             {insight.title}
           </Typography>
@@ -322,5 +395,16 @@ export function InsightCard({ insight, onSwipe, onClick, view = 'list', viewingU
         </Box>
       </Box>
     </animated.div>
+    {onMoveTo && (
+      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
+        <MenuItem disabled sx={{ fontSize: '0.75rem', color: '#90A4AE', py: 0.5 }}>Move to…</MenuItem>
+        {otherStages.map((s) => (
+          <MenuItem key={s} onClick={() => { setMenuAnchor(null); onMoveTo(s); }} sx={{ fontSize: '0.875rem' }}>
+            {s}
+          </MenuItem>
+        ))}
+      </Menu>
+    )}
+    </>
   );
 }

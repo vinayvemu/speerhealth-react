@@ -14,15 +14,17 @@ export const GET_KPI_COUNTS = gql`
 `;
 
 export const GET_ALL_INSIGHTS_FOR_ANALYTICS = gql`
-  query GetAllInsightsForAnalytics($cursor: Cursor) {
+  query GetAllInsightsForAnalytics($cursor: Cursor, $filter: InsightsFilter) {
     insightsCollection(
       first: 30
       after: $cursor
+      filter: $filter
       orderBy: [{ createdAt: DescNullsLast }]
     ) {
       edges {
         node {
           id
+          title
           stage
           priority
           createdAt

@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useMemo, useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { usePresence } from './hooks/usePresence';
 import { useBroadcast } from './hooks/useBroadcast';
@@ -19,6 +19,8 @@ interface RealtimeContextValue {
   broadcastStoppedEditing: (cardId: string) => void;
   broadcastSwiping: (cardId: string, direction: 'left' | 'right', progress: number) => void;
   broadcastStoppedSwiping: (cardId: string) => void;
+  // Highlight flash when another user edits a card
+  highlightedInsightId: string | null;
   // Activity feed
   activities: FeedActivity[];
   unreadCount: number;
@@ -47,6 +49,15 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
   const { activities, unreadCount, isOpen: activityFeedOpen, open: openActivityFeed, close: closeActivityFeed } = useActivityFeed(teamId);
 
+  const [highlightedInsightId, setHighlightedInsightId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashHighlight = useCallback((id: string) => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    setHighlightedInsightId(id);
+    highlightTimerRef.current = setTimeout(() => setHighlightedInsightId(null), 1500);
+  }, []);
+
   useBoardSync({
     teamId,
     onCardMoved: (_id, _from: Stage, toStage: Stage) => {
@@ -55,18 +66,19 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     onCardCreated: (_id, stage: Stage) => {
       toast(`New insight added to ${STAGE_LABELS[stage]}`, 'info');
     },
-    onCardEdited: () => { },
+    onCardEdited: (id: string) => { flashHighlight(id); },
   });
 
   const value = useMemo<RealtimeContextValue>(() => ({
     onlineUsers,
     ...broadcast,
+    highlightedInsightId,
     activities,
     unreadCount,
     activityFeedOpen,
     openActivityFeed,
     closeActivityFeed,
-  }), [onlineUsers, broadcast, activities, unreadCount, activityFeedOpen, openActivityFeed, closeActivityFeed]);
+  }), [onlineUsers, broadcast, highlightedInsightId, activities, unreadCount, activityFeedOpen, openActivityFeed, closeActivityFeed]);
 
   return (
     <RealtimeContext.Provider value={value}>

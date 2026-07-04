@@ -3,6 +3,7 @@ import { STAGES } from '@/shared/types/domain';
 
 export interface AnalyticsInsight {
   id: string;
+  title: string;
   stage: Stage;
   priority: Priority;
   createdAt: string;

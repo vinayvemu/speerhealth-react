@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Button, MenuItem, Divider } from '@mui/material';
+import { useQuery } from '@apollo/client';
+import { Box, Typography, Button, MenuItem, Divider, Chip, CircularProgress } from '@mui/material';
 import TuneIcon from '@mui/icons-material/Tune';
 import { useBoardFilters } from '../hooks/useBoardFilters';
-import { CATEGORIES, PRIORITY_COLORS } from '@/shared/types/domain';
+import { PRIORITY_COLORS } from '@/shared/types/domain';
 import type { Priority } from '@/shared/types/domain';
 import { AppDrawer } from '@/shared/components/ui/AppDrawer';
 import { PrimaryButton } from '@/shared/components/ui/PrimaryButton';
 import { FormSelect, FormTextField, ITEM_SX } from '@/shared/components/ui/FormFields';
+import { GET_CATEGORIES, GET_TAGS, GET_HCPS } from '../graphql/queries';
 
 interface DraftFilters {
   categoryId: string | null;
   priorities: Priority[];
   dateFrom: string | null;
   dateTo: string | null;
+  hcpId: string | null;
+  tagIds: string[];
 }
 
 interface Props { open: boolean; onClose: () => void }
@@ -20,12 +24,26 @@ interface Props { open: boolean; onClose: () => void }
 export function AdvancedFilterDrawer({ open, onClose }: Props) {
   const { filters, clearFilters, applyAdvancedFilters } = useBoardFilters();
 
+  // Fetch reference data
+  const { data: catData, loading: catLoading } = useQuery(GET_CATEGORIES, { fetchPolicy: 'cache-first' });
+  const { data: tagData, loading: tagLoading } = useQuery(GET_TAGS, { fetchPolicy: 'cache-first' });
+  const { data: hcpData, loading: hcpLoading } = useQuery(GET_HCPS, { fetchPolicy: 'cache-first' });
+
+  const categories: Array<{ id: string; name: string }> =
+    catData?.categoriesCollection?.edges?.map((e: { node: { id: string; name: string } }) => e.node) ?? [];
+  const tags: Array<{ id: string; name: string }> =
+    tagData?.tagsCollection?.edges?.map((e: { node: { id: string; name: string } }) => e.node) ?? [];
+  const hcps: Array<{ id: string; name: string }> =
+    hcpData?.hcpsCollection?.edges?.map((e: { node: { id: string; name: string } }) => e.node) ?? [];
+
   // Local draft — initialized from URL state each time drawer opens
   const [draft, setDraft] = useState<DraftFilters>({
     categoryId: filters.categoryId,
     priorities: filters.priorities,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
+    hcpId: filters.hcpId,
+    tagIds: filters.tags,
   });
 
   useEffect(() => {
@@ -35,6 +53,8 @@ export function AdvancedFilterDrawer({ open, onClose }: Props) {
         priorities: filters.priorities,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
+        hcpId: filters.hcpId,
+        tagIds: filters.tags,
       });
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -48,11 +68,22 @@ export function AdvancedFilterDrawer({ open, onClose }: Props) {
     }));
   };
 
+  const toggleTag = (tagId: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      tagIds: prev.tagIds.includes(tagId)
+        ? prev.tagIds.filter((id) => id !== tagId)
+        : [...prev.tagIds, tagId],
+    }));
+  };
+
   const hasDraftActive =
     draft.categoryId !== null ||
     draft.priorities.length > 0 ||
     draft.dateFrom !== null ||
-    draft.dateTo !== null;
+    draft.dateTo !== null ||
+    draft.hcpId !== null ||
+    draft.tagIds.length > 0;
 
   const handleApply = () => {
     applyAdvancedFilters(draft);
@@ -60,7 +91,7 @@ export function AdvancedFilterDrawer({ open, onClose }: Props) {
   };
 
   const handleClear = () => {
-    setDraft({ categoryId: null, priorities: [], dateFrom: null, dateTo: null });
+    setDraft({ categoryId: null, priorities: [], dateFrom: null, dateTo: null, hcpId: null, tagIds: [] });
     clearFilters();
     onClose();
   };
@@ -103,8 +134,27 @@ export function AdvancedFilterDrawer({ open, onClose }: Props) {
         onChange={(e) => setDraft((prev) => ({ ...prev, categoryId: (e.target.value as string) || null }))}
       >
         <MenuItem value="" sx={ITEM_SX}>All categories</MenuItem>
-        {CATEGORIES.map((c) => (
-          <MenuItem key={c} value={c} sx={ITEM_SX}>{c}</MenuItem>
+        {catLoading ? (
+          <MenuItem disabled sx={ITEM_SX}><CircularProgress size={14} /></MenuItem>
+        ) : categories.map((c) => (
+          <MenuItem key={c.id} value={c.id} sx={ITEM_SX}>{c.name}</MenuItem>
+        ))}
+      </FormSelect>
+
+      <Divider sx={{ borderColor: '#EAECF5' }} />
+
+      {/* HCP filter */}
+      <FormSelect
+        value={draft.hcpId ?? ''}
+        label="HCP"
+        containerSx={{ width: '100%' }}
+        onChange={(e) => setDraft((prev) => ({ ...prev, hcpId: (e.target.value as string) || null }))}
+      >
+        <MenuItem value="" sx={ITEM_SX}>All HCPs</MenuItem>
+        {hcpLoading ? (
+          <MenuItem disabled sx={ITEM_SX}><CircularProgress size={14} /></MenuItem>
+        ) : hcps.map((h) => (
+          <MenuItem key={h.id} value={h.id} sx={ITEM_SX}>{h.name}</MenuItem>
         ))}
       </FormSelect>
 
@@ -138,6 +188,42 @@ export function AdvancedFilterDrawer({ open, onClose }: Props) {
             );
           })}
         </Box>
+      </Box>
+
+      <Divider sx={{ borderColor: '#EAECF5' }} />
+
+      {/* Tags */}
+      <Box>
+        <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#6B7280', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Tags
+        </Typography>
+        {tagLoading ? (
+          <CircularProgress size={16} />
+        ) : (
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {tags.map((tag) => {
+              const active = draft.tagIds.includes(tag.id);
+              return (
+                <Chip
+                  key={tag.id}
+                  label={tag.name}
+                  size="small"
+                  onClick={() => toggleTag(tag.id)}
+                  sx={{
+                    fontSize: '0.72rem', cursor: 'pointer',
+                    bgcolor: active ? '#3F51B5' : '#E8EAF6',
+                    color: active ? '#fff' : '#3F51B5',
+                    border: active ? '1px solid #3F51B5' : '1px solid transparent',
+                    '&:hover': { bgcolor: active ? '#303F9F' : '#C5CAE9' },
+                  }}
+                />
+              );
+            })}
+            {tags.length === 0 && (
+              <Typography sx={{ fontSize: '0.78rem', color: '#9CA3AF' }}>No tags found</Typography>
+            )}
+          </Box>
+        )}
       </Box>
 
       <Divider sx={{ borderColor: '#EAECF5' }} />
