@@ -34,6 +34,22 @@ export const DELETE_INSIGHT = gql`
   }
 `;
 
+export const INSERT_INSIGHT_TAGS = gql`
+  mutation InsertInsightTags($objects: [InsightTagsInsertInput!]!) {
+    insertIntoInsightTagsCollection(objects: $objects) {
+      affectedCount
+    }
+  }
+`;
+
+export const DELETE_INSIGHT_TAGS = gql`
+  mutation DeleteInsightTags($insightId: UUID!) {
+    deleteFromInsightTagsCollection(filter: { insightId: { eq: $insightId } }) {
+      affectedCount
+    }
+  }
+`;
+
 export const LOG_ACTIVITY = gql`
   mutation LogActivity($objects: [InsightActivitiesInsertInput!]!) {
     insertIntoInsightActivitiesCollection(objects: $objects) {

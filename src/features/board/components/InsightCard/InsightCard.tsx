@@ -211,11 +211,12 @@ function GridCard({ insight, onClick, onMoveTo, editingUser, viewingUsers = [], 
 // ─── List card (swipeable) ────────────────────────────────────────────────────
 
 export function InsightCard({ insight, onSwipe, onClick, onMoveTo, view = 'list', viewingUsers = [], editingUser = null, isBeingSwiped = false, isHighlighted = false }: Props) {
-  const isDragging = useRef(false);
   const { broadcastSwiping, broadcastStoppedSwiping } = useRealtime();
   const p = PRIORITY_COLORS[insight.priority];
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track pointer start to distinguish tap from drag on the inner Box
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const otherStages = STAGES.filter((s) => s !== insight.stage);
 
   const canGoForward = nextStage(insight.stage) !== null;
@@ -225,8 +226,6 @@ export function InsightCard({ insight, onSwipe, onClick, onMoveTo, view = 'list'
 
   const bind = useDrag(
     ({ movement: [mx], last, cancel }) => {
-      isDragging.current = Math.abs(mx) > 5;
-
       if (mx > 0 && !canGoForward) { api.start({ x: Math.min(mx * 0.12, 16) }); if (last) api.start({ x: 0 }); return; }
       if (mx < 0 && !canGoBack) { api.start({ x: Math.max(mx * 0.12, -16) }); if (last) api.start({ x: 0 }); return; }
 
@@ -251,11 +250,25 @@ export function InsightCard({ insight, onSwipe, onClick, onMoveTo, view = 'list'
     return <GridCard insight={insight} onClick={onClick} onMoveTo={onMoveTo} viewingUsers={viewingUsers} editingUser={editingUser} isBeingSwiped={isBeingSwiped} isHighlighted={isHighlighted} />;
   }
 
-  const handleClick = () => { if (!isDragging.current) onClick(); };
+  // Handlers on the inner Box — unaffected by gesture system's native listeners on animated.div
   const handlePointerDown = (e: React.PointerEvent) => {
+    pointerStart.current = { x: e.clientX, y: e.clientY };
     longPressTimer.current = setTimeout(() => setMenuAnchor(e.currentTarget as HTMLElement), 500);
   };
-  const handlePointerUp = () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    const start = pointerStart.current;
+    pointerStart.current = null;
+    if (!start) return;
+    const dx = Math.abs(e.clientX - start.x);
+    const dy = Math.abs(e.clientY - start.y);
+    // Only treat as a tap if pointer barely moved (not a swipe/drag)
+    if (dx < 8 && dy < 8) onClick();
+  };
+  const handlePointerLeave = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    pointerStart.current = null;
+  };
   const handleContextMenu = (e: React.MouseEvent) => { e.preventDefault(); setMenuAnchor(e.currentTarget as HTMLElement); };
   const catColors = insight.category ? getCatColors(insight.category.name) : null;
   const tags = insight.tags ?? [];
@@ -267,13 +280,12 @@ export function InsightCard({ insight, onSwipe, onClick, onMoveTo, view = 'list'
     <animated.div
       {...bind()}
       style={{ x, touchAction: 'pan-y' }}
-      onClick={handleClick}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-      onContextMenu={handleContextMenu}
     >
       <Box
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerLeave}
+        onContextMenu={handleContextMenu}
         sx={{
           bgcolor: '#fff',
           borderRadius: '10px',
@@ -390,7 +402,9 @@ export function InsightCard({ insight, onSwipe, onClick, onMoveTo, view = 'list'
             </Typography>
           </Box>
           <Tooltip title="Open detail">
-            <OpenInNewIcon sx={{ fontSize: 15, color: '#CFD8DC', '&:hover': { color: '#3F51B5' }, cursor: 'pointer' }} />
+            <OpenInNewIcon
+              sx={{ fontSize: 15, color: '#CFD8DC', '&:hover': { color: '#3F51B5' }, cursor: 'pointer' }}
+            />
           </Tooltip>
         </Box>
       </Box>

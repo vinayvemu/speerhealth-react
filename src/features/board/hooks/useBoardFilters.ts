@@ -12,6 +12,7 @@ export interface BoardFilters {
   tags: string[];
   dateFrom: string | null;
   dateTo: string | null;
+  sort: 'default' | 'recency';
 }
 
 export function useBoardFilters() {
@@ -28,6 +29,7 @@ export function useBoardFilters() {
     tags: searchParams.getAll('tag'),
     dateFrom: searchParams.get('from') ?? null,
     dateTo: searchParams.get('to') ?? null,
+    sort: searchParams.get('sort') === 'recency' ? 'recency' : 'default',
   };
 
   const setStage = useCallback((stage: Stage) => {
@@ -75,6 +77,15 @@ export function useBoardFilters() {
       } else {
         next.set(paramKey, value as string);
       }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const toggleSort = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (next.get('sort') === 'recency') next.delete('sort');
+      else next.set('sort', 'recency');
       return next;
     }, { replace: true });
   }, [setSearchParams]);
@@ -144,12 +155,7 @@ export function useBoardFilters() {
     if (filters.hcpId) {
       filter.hcpId = { eq: filters.hcpId };
     }
-    if (filters.tags.length > 0) {
-      // Filter by tag via the junction table — GQL: insightTagsCollection.some(tag.id in tags)
-      filter.insightTagsCollection = {
-        some: { tagId: { in: filters.tags } },
-      };
-    }
+    // Note: tag filtering is applied client-side (insightTagsCollection not in InsightsFilter)
     if (filters.dateFrom) {
       filter.createdAt = { ...filter.createdAt, gte: filters.dateFrom };
     }
@@ -167,5 +173,5 @@ export function useBoardFilters() {
     filters.dateFrom !== null ||
     filters.dateTo !== null;
 
-  return { filters, setStage, setSearch, togglePriority, setFilter, clearFilters, clearFilter, applyAdvancedFilters, buildGraphQLFilter, hasActiveFilters };
+  return { filters, setStage, setSearch, togglePriority, toggleSort, setFilter, clearFilters, clearFilter, applyAdvancedFilters, buildGraphQLFilter, hasActiveFilters };
 }

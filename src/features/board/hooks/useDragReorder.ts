@@ -20,17 +20,20 @@ export function useDragReorder(insights: Insight[], onReordered: (reordered: Ins
     const reordered = arrayMove(insights, oldIndex, newIndex);
     onReordered(reordered); // optimistic update
 
-    // Persist new column_order for the moved item
-    const movedInsight = reordered[newIndex];
-    echoSuppressor.tag(movedInsight.id);
+    // Persist new column_order for ALL items so AscNullsLast ordering is reliable
+    reordered.forEach((ins) => echoSuppressor.tag(ins.id));
 
     try {
-      await updateInsight({
-        variables: {
-          filter: { id: { eq: movedInsight.id } },
-          set: { columnOrder: newIndex },
-        },
-      });
+      await Promise.all(
+        reordered.map((ins, idx) =>
+          updateInsight({
+            variables: {
+              filter: { id: { eq: ins.id } },
+              set: { columnOrder: idx },
+            },
+          })
+        )
+      );
     } catch (e) {
       console.error('[useDragReorder] failed to persist order', e);
       onReordered(insights); // revert

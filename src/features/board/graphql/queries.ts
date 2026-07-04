@@ -42,12 +42,12 @@ export const INSIGHT_CARD_FRAGMENT = gql`
 
 export const LIST_INSIGHTS = gql`
   ${INSIGHT_CARD_FRAGMENT}
-  query ListInsights($cursor: Cursor, $filter: InsightsFilter, $first: Int) {
+  query ListInsights($cursor: Cursor, $filter: InsightsFilter, $first: Int, $orderBy: [InsightsOrderBy!]) {
     insightsCollection(
       first: $first
       after: $cursor
       filter: $filter
-      orderBy: [{ columnOrder: AscNullsLast }, { createdAt: DescNullsLast }]
+      orderBy: $orderBy
     ) {
       edges {
         node {

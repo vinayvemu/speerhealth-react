@@ -1,6 +1,7 @@
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, Tooltip, IconButton } from '@mui/material';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import SwapVertIcon from '@mui/icons-material/SwapVert';
 import type { Priority } from '@/shared/types/domain';
 import { PRIORITY_COLORS } from '@/shared/types/domain';
 import type { BoardFilters } from '../../hooks/useBoardFilters';
@@ -20,6 +21,10 @@ interface Props {
   onClearAll: () => void;
   hasActiveFilters: boolean;
   onOpenAdvanced: () => void;
+  onSortToggle: () => void;
+  reorderMode?: boolean;
+  onReorderToggle?: () => void;
+  showReorder?: boolean;
 }
 
 function PriorityPill({ priority, active, onClick }: { priority: Priority; active: boolean; onClick: () => void }) {
@@ -48,7 +53,7 @@ function PriorityPill({ priority, active, onClick }: { priority: Priority; activ
   );
 }
 
-export function FilterBar({ filters, onPriorityToggle, onClearAll, hasActiveFilters, onOpenAdvanced }: Props) {
+export function FilterBar({ filters, onPriorityToggle, onClearAll, hasActiveFilters, onOpenAdvanced, onSortToggle, reorderMode, onReorderToggle, showReorder }: Props) {
   const allActive = filters.priorities.length === 0;
 
   return (
@@ -118,21 +123,52 @@ export function FilterBar({ filters, onPriorityToggle, onClearAll, hasActiveFilt
         <Typography sx={{ fontSize: '0.8rem', fontWeight: 500, color: 'inherit', lineHeight: 1 }}>Filter</Typography>
       </Box>
 
-      {/* Recency sort */}
+      {/* Recency sort toggle */}
       <Box
         component="button"
+        onClick={onSortToggle}
         aria-label="Sort by recency"
+        aria-pressed={filters.sort === 'recency'}
         sx={{
           display: 'inline-flex', alignItems: 'center', gap: 0.5,
           px: 1.5, height: 30, borderRadius: '8px',
-          border: '1.5px solid #E8EBF4', bgcolor: 'transparent',
-          cursor: 'pointer', color: '#607D8B',
+          border: filters.sort === 'recency' ? '1.5px solid #3F51B5' : '1.5px solid #E8EBF4',
+          bgcolor: filters.sort === 'recency' ? '#E8EAF6' : 'transparent',
+          cursor: 'pointer',
+          color: filters.sort === 'recency' ? '#3F51B5' : '#607D8B',
+          transition: 'all 0.12s',
           '&:hover': { borderColor: '#3F51B5', color: '#3F51B5' },
         }}
       >
         <TrendingUpIcon sx={{ fontSize: 15 }} />
-        <Typography sx={{ fontSize: '0.8rem', fontWeight: 500, color: 'inherit', lineHeight: 1 }}>Recency</Typography>
+        <Typography sx={{ fontSize: '0.8rem', fontWeight: filters.sort === 'recency' ? 700 : 500, color: 'inherit', lineHeight: 1 }}>
+          Recency
+        </Typography>
       </Box>
+
+      {/* Reorder toggle — only shown in list view */}
+      {showReorder && (
+        <Tooltip title={reorderMode ? 'Exit reorder mode' : 'Drag to reorder'}>
+          <IconButton
+            size="small"
+            onClick={onReorderToggle}
+            aria-label="Toggle reorder mode"
+            sx={{
+              border: '1.5px solid',
+              borderColor: reorderMode ? '#3F51B5' : '#E8EBF4',
+              bgcolor: reorderMode ? '#E8EAF6' : 'transparent',
+              color: reorderMode ? '#3F51B5' : '#607D8B',
+              borderRadius: '8px',
+              p: 0.5,
+              height: 30,
+              width: 30,
+              '&:hover': { borderColor: '#3F51B5', color: '#3F51B5' },
+            }}
+          >
+            <SwapVertIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      )}
     </Box>
   );
 }

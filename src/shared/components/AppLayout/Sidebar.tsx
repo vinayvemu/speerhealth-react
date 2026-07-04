@@ -117,7 +117,8 @@ export function Sidebar({ expanded, onToggle, activeStage, onStageChange, stageC
     ? user.email.split('@')[0].slice(0, 2).toUpperCase()
     : 'AL';
 
-  const userName = user?.email?.split('@')[0] ?? 'User';
+  const rawName = user?.email?.split('@')[0] ?? 'user';
+  const userName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
 
   return (
     <Box sx={{
@@ -199,29 +200,15 @@ export function Sidebar({ expanded, onToggle, activeStage, onStageChange, stageC
       {/* ── User + collapse toggle ── */}
       <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1, pb: 1.5, flexShrink: 0 }}>
 
-        {/* User row — always flex-start so avatar+name sits at left edge */}
+        {/* User row */}
         <Box sx={{ px: 1, mb: 0.5 }}>
-          <Box
-            onClick={() => signOut()}
-            role="button"
-            aria-label="Sign out"
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-start',
-              gap: 1.25,
-              px: 1,
-              py: 0.875,
-              borderRadius: '8px',
-              cursor: 'pointer',
-              '&:hover': { bgcolor: SIDEBAR_HOVER },
-            }}
-          >
-            {/* Avatar */}
-            <Tooltip
-              title={expanded ? 'Sign out' : `${userName} · Sign out`}
-              placement="right"
-            >
+          {expanded ? (
+            /* ── Expanded: row is NOT clickable; only the logout icon signs out ── */
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 1.25,
+              px: 1, py: 0.875, borderRadius: '8px',
+            }}>
+              {/* Avatar — display only */}
               <Box sx={{
                 width: 32, height: 32, borderRadius: '50%',
                 bgcolor: '#3F51B5',
@@ -232,26 +219,65 @@ export function Sidebar({ expanded, onToggle, activeStage, onStageChange, stageC
                   {userInitials}
                 </Typography>
               </Box>
-            </Tooltip>
 
-            {/* Name + role — only when expanded */}
-            {expanded && (
-              <>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography sx={{
-                    color: TEXT_BRIGHT, fontSize: '0.8125rem',
-                    fontWeight: 600, lineHeight: 1.25,
-                  }} noWrap>
-                    {userName}
-                  </Typography>
-                  <Typography sx={{ color: TEXT_DIM, fontSize: '0.7rem', lineHeight: 1 }}>
-                    Field Rep
+              {/* Name + role */}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography sx={{
+                  color: TEXT_BRIGHT, fontSize: '0.8125rem',
+                  fontWeight: 600, lineHeight: 1.25,
+                }} noWrap>
+                  {userName}
+                </Typography>
+                <Typography sx={{ color: TEXT_DIM, fontSize: '0.7rem', lineHeight: 1 }}>
+                  Field Rep
+                </Typography>
+              </Box>
+
+              {/* Logout icon — ONLY click target for sign out */}
+              <Tooltip title="Sign out" placement="top">
+                <Box
+                  onClick={() => signOut()}
+                  role="button"
+                  aria-label="Sign out"
+                  sx={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 28, height: 28, borderRadius: '6px',
+                    cursor: 'pointer', flexShrink: 0,
+                    color: TEXT_DIM,
+                    transition: 'background 0.12s, color 0.12s',
+                    '&:hover': { bgcolor: 'rgba(244,67,54,0.15)', color: '#EF9A9A' },
+                  }}
+                >
+                  <LogoutIcon sx={{ fontSize: 16 }} />
+                </Box>
+              </Tooltip>
+            </Box>
+          ) : (
+            /* ── Collapsed: whole avatar is the sign-out target (no text visible) ── */
+            <Tooltip title={`${userName} · Sign out`} placement="right">
+              <Box
+                onClick={() => signOut()}
+                role="button"
+                aria-label="Sign out"
+                sx={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  py: 0.875, borderRadius: '8px',
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: SIDEBAR_HOVER },
+                }}
+              >
+                <Box sx={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  bgcolor: '#3F51B5',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.7rem', lineHeight: 1 }}>
+                    {userInitials}
                   </Typography>
                 </Box>
-                <LogoutIcon sx={{ fontSize: 16, color: TEXT_DIM, flexShrink: 0 }} />
-              </>
-            )}
-          </Box>
+              </Box>
+            </Tooltip>
+          )}
         </Box>
 
         {/* Collapse toggle */}

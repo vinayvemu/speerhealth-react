@@ -16,6 +16,8 @@ import { echoSuppressor } from '@/lib/supabase/echoSuppression';
 import { formatDistanceToNow } from '@/features/board/utils/time';
 import { AppDrawer } from '@/shared/components/ui/AppDrawer';
 import { DrugContext } from './DrugContext';
+import { CustomFieldValues } from './CustomFieldValues';
+import { ComponentErrorBoundary } from '@/shared/components/ErrorBoundary/ComponentErrorBoundary';
 
 interface Props {
   insight: Insight;
@@ -180,6 +182,11 @@ export function DetailDrawer({ insight, open, onClose, onEdit, onMoved }: Props)
           </Box>
         </Box>
       )}
+
+      {/* Custom Fields */}
+      <ComponentErrorBoundary fallback={null}>
+        <CustomFieldValues values={insight.customFields} />
+      </ComponentErrorBoundary>
 
       {/* Timestamps */}
       <Typography variant="caption" color="text.disabled">

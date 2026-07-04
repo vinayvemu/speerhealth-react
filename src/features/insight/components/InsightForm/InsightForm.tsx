@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useLazyQuery, useQuery, useApolloClient } from '@apollo/client';
 import {
   Box, Typography, MenuItem, Autocomplete, CircularProgress,
   Button, Dialog, DialogTitle, DialogContent, DialogActions,
+  IconButton, Tooltip,
 } from '@mui/material';
+import MicIcon from '@mui/icons-material/Mic';
+import MicOffIcon from '@mui/icons-material/MicOff';
 import { insightSchema, type InsightFormValues } from '../../schemas/insightSchema';
-import { CREATE_INSIGHT, UPDATE_INSIGHT, LOG_ACTIVITY } from '@/features/board/graphql/mutations';
+import { CREATE_INSIGHT, UPDATE_INSIGHT, LOG_ACTIVITY, INSERT_INSIGHT_TAGS, DELETE_INSIGHT_TAGS } from '@/features/board/graphql/mutations';
 import { SEARCH_HCPS } from '../../graphql/queries';
-import { GET_CATEGORIES, GET_TAGS, GET_INSIGHT } from '@/features/board/graphql/queries';
+import { GET_CATEGORIES, GET_TAGS, GET_INSIGHT, LIST_INSIGHTS } from '@/features/board/graphql/queries';
 import type { Insight, HCP, Tag, CategoryRecord } from '@/shared/types/domain';
 import { STAGES, STAGE_LABELS } from '@/shared/types/domain';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -20,6 +23,9 @@ import { ConflictModal } from '@/features/realtime/components/ConflictModal/Conf
 import { AppDrawer } from '@/shared/components/ui/AppDrawer';
 import { PrimaryButton } from '@/shared/components/ui/PrimaryButton';
 import { FormTextField, FormSelect, ITEM_SX } from '@/shared/components/ui/FormFields';
+import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
+import { CustomFieldsSection } from './CustomFieldsSection';
+import type { CustomFieldValues } from '../../types/customFields';
 
 interface Props {
   insight?: Insight;
@@ -40,6 +46,15 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
   const isEdit = Boolean(insight);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [pendingValues, setPendingValues] = useState<InsightFormValues | null>(null);
+  const parseCustomFields = (raw: unknown): CustomFieldValues => {
+    if (!raw) return {};
+    if (typeof raw === 'string') { try { return JSON.parse(raw) as CustomFieldValues; } catch { return {}; } }
+    return raw as CustomFieldValues;
+  };
+
+  const [customFields, setCustomFields] = useState<CustomFieldValues>(
+    parseCustomFields(insight?.customFields),
+  );
 
   const { conflict, detectConflict, resolveKeepMine, resolveKeepTheirs, resolveMerge } = useConflictResolution();
 
@@ -50,12 +65,14 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
   const [createInsight] = useMutation(CREATE_INSIGHT);
   const [updateInsight] = useMutation(UPDATE_INSIGHT);
   const [logActivity] = useMutation(LOG_ACTIVITY);
+  const [insertTags] = useMutation(INSERT_INSIGHT_TAGS);
+  const [deleteTags] = useMutation(DELETE_INSIGHT_TAGS);
 
   const categories = categoriesData?.categoriesCollection?.edges?.map((e) => e.node) ?? [];
   const allTags = tagsData?.tagsCollection?.edges?.map((e) => e.node) ?? [];
   const hcpOptions = hcpData?.hcpsCollection?.edges?.map((e) => e.node) ?? [];
 
-  const { control, handleSubmit, reset, formState: { errors, isDirty, isSubmitting } } = useForm<InsightFormValues>({
+  const { control, handleSubmit, reset, getValues, setValue, formState: { errors, isDirty, isSubmitting } } = useForm<InsightFormValues>({
     resolver: zodResolver(insightSchema),
     mode: 'onChange',
     defaultValues: {
@@ -70,6 +87,18 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
     },
   });
 
+  const handleTranscript = useCallback((text: string) => {
+    const current = getValues('description') ?? '';
+    setValue('description', current ? `${current} ${text}` : text, { shouldDirty: true });
+  }, [getValues, setValue]);
+
+  const { status: speechStatus, toggle: toggleSpeech, stop: stopSpeech } = useSpeechRecognition({ onTranscript: handleTranscript });
+
+  // Stop mic immediately when the drawer is dismissed — don't wait for unmount
+  useEffect(() => {
+    if (!open) stopSpeech();
+  }, [open, stopSpeech]);
+
   useEffect(() => {
     if (open) {
       reset({
@@ -82,15 +111,36 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
         drugName: insight?.drugName ?? '',
         tagIds: insight?.tags?.map((t) => t.id) ?? [],
       });
+      setCustomFields(parseCustomFields(insight?.customFields));
     }
   }, [open, insight, reset]);
 
   const handleClose = () => {
+    stopSpeech(); // kill mic immediately — don't wait for open → false effect
     if (isDirty) { setShowUnsavedDialog(true); return; }
     onClose();
   };
 
+  const syncTags = async (insightId: string, tagIds: string[]) => {
+    // Delete all existing tag associations for this insight
+    await deleteTags({ variables: { insightId } });
+    if (tagIds.length > 0) {
+      const { errors } = await insertTags({
+        variables: {
+          objects: tagIds.map((tagId) => ({ insightId, tagId })),
+        },
+      });
+      if (errors?.length) {
+        console.error('[syncTags] insertTags error:', errors);
+        throw new Error(errors[0].message);
+      }
+    }
+  };
+
   const doSave = async (values: InsightFormValues) => {
+    const tagIds = values.tagIds ?? [];
+    // JSONB fields must be passed as a JSON string (pg_graphql requirement)
+    const customFieldsJson = Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : null;
     if (isEdit && insight) {
       echoSuppressor.tag(insight.id);
       const { data } = await updateInsight({
@@ -104,9 +154,14 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
             categoryId: values.categoryId ?? null,
             hcpId: values.hcpId ?? null,
             drugName: values.drugName ?? null,
+            customFields: customFieldsJson,
           },
         },
       });
+
+      // Sync tags independently (junction table)
+      await syncTags(insight.id, tagIds);
+
       const updated = data?.updateInsightsCollection?.records?.[0];
       if (updated) {
         const changedFields: string[] = [];
@@ -129,6 +184,8 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
           })
         ));
       }
+      // Refetch list after all mutations (tags + customFields) are committed
+      await apolloClient.refetchQueries({ include: [LIST_INSIGHTS] });
       toast('Insight updated', 'success');
     } else {
       const { data } = await createInsight({
@@ -141,18 +198,24 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
             categoryId: values.categoryId ?? null,
             hcpId: values.hcpId ?? null,
             drugName: values.drugName ?? null,
+            customFields: customFieldsJson,
             createdBy: user?.id,
           }],
         },
       });
       const created = data?.insertIntoInsightsCollection?.records?.[0];
       if (created) {
+        // Insert tag associations for the new insight
+        await syncTags(created.id, tagIds);
+
         logActivity({
           variables: {
             objects: [{ insightId: created.id, userId: user?.id, action: 'created', fieldName: null, oldValue: null, newValue: null }],
           },
         }).catch(() => { });
       }
+      // Refetch list after all mutations (tags + customFields) are committed
+      await apolloClient.refetchQueries({ include: [LIST_INSIGHTS] });
       toast('Insight created', 'success');
     }
     onSaved();
@@ -244,17 +307,56 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
           />
         )} />
 
-        {/* Description */}
+        {/* Description + Voice-to-Text */}
         <Controller name="description" control={control} render={({ field }) => (
-          <FormTextField
-            {...field}
-            label="Description"
-            placeholder="What happened? What did the HCP say or signal?"
-            error={Boolean(errors.description)}
-            helperText={errors.description?.message}
-            fullWidth multiline rows={3}
-            aria-label="Insight description"
-          />
+          <Box sx={{ position: 'relative' }}>
+            <FormTextField
+              {...field}
+              label="Description"
+              placeholder="What happened? What did the HCP say or signal?"
+              error={Boolean(errors.description)}
+              helperText={errors.description?.message}
+              fullWidth multiline rows={3}
+              aria-label="Insight description"
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <Box sx={{ position: 'absolute', top: 8, right: 8 }}>
+                      <Tooltip
+                        title={
+                          speechStatus === 'unsupported' ? 'Speech not supported in this browser'
+                          : speechStatus === 'denied' ? 'Microphone permission denied'
+                          : speechStatus === 'requesting' ? 'Requesting microphone…'
+                          : speechStatus === 'recording' ? 'Stop recording'
+                          : 'Record description'
+                        }
+                      >
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={toggleSpeech}
+                            disabled={speechStatus === 'unsupported' || speechStatus === 'denied' || speechStatus === 'requesting'}
+                            sx={{
+                              color: speechStatus === 'recording' ? '#EF4444' : '#9CA3AF',
+                              '&:hover': { color: speechStatus === 'recording' ? '#DC2626' : '#3F51B5' },
+                              animation: speechStatus === 'recording' ? 'pulse 1.2s ease-in-out infinite' : 'none',
+                              '@keyframes pulse': {
+                                '0%, 100%': { opacity: 1 },
+                                '50%': { opacity: 0.4 },
+                              },
+                            }}
+                            aria-label={speechStatus === 'recording' ? 'Stop recording' : 'Start recording'}
+                          >
+                            {speechStatus === 'recording' ? <MicOffIcon sx={{ fontSize: 16 }} /> : <MicIcon sx={{ fontSize: 16 }} />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+                  ),
+                },
+              }}
+            />
+          </Box>
         )} />
 
         {/* Priority + Stage */}
@@ -362,6 +464,9 @@ export function InsightForm({ insight, open, onClose, onSaved }: Props) {
             aria-label="Select tags"
           />
         )} />
+
+        {/* Custom Fields */}
+        <CustomFieldsSection values={customFields} onChange={setCustomFields} />
       </AppDrawer>
 
       {conflict && (

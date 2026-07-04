@@ -1,10 +1,18 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useQuery } from '@apollo/client';
 import { Box, CircularProgress, Typography, Button, Chip } from '@mui/material';
 import FilterListOffIcon from '@mui/icons-material/FilterListOff';
 import SearchOffIcon from '@mui/icons-material/SearchOff';
 import CloseIcon from '@mui/icons-material/Close';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import {
+  DndContext, DragOverlay, closestCenter,
+  PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core';
+import type { DragStartEvent } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { TopBar } from '@/shared/components/AppLayout/TopBar';
 import { StageSummary } from './StageSummary/StageSummary';
 import { FilterBar } from './FilterBar/FilterBar';
@@ -24,8 +32,90 @@ import { DetailDrawer } from '@/features/insight/components/DetailDrawer/DetailD
 import { InsightForm } from '@/features/insight/components/InsightForm/InsightForm';
 import { AdvancedFilterDrawer } from './AdvancedFilterDrawer';
 import { GET_CATEGORIES, GET_HCPS, GET_TAGS } from '../graphql/queries';
+import { useDragReorder } from '../hooks/useDragReorder';
+import { PRIORITY_COLORS } from '@/shared/types/domain';
 
 type ViewMode = 'list' | 'grid';
+
+// ─── Sortable drag row (reorder mode only) ────────────────────────────────────
+
+function SortableRow({ insight }: { insight: Insight }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: insight.id });
+  const p = PRIORITY_COLORS[insight.priority];
+  return (
+    <Box
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      sx={{
+        display: 'flex', alignItems: 'center', gap: 1.25,
+        bgcolor: isDragging ? '#EEF0FF' : '#fff',
+        borderRadius: '10px', mb: 0.75,
+        px: 1.5, py: 1,
+        borderLeft: `3px solid ${p.text}`,
+        boxShadow: isDragging
+          ? '0 8px 24px rgba(63,81,181,0.18)'
+          : '0 1px 3px rgba(13,23,41,0.06)',
+        opacity: isDragging ? 0.45 : 1,
+        transition: 'box-shadow 0.12s, opacity 0.12s',
+        cursor: 'default',
+      }}
+    >
+      {/* Drag handle */}
+      <Box
+        {...attributes}
+        {...listeners}
+        sx={{ display: 'flex', alignItems: 'center', color: '#CFD8DC', cursor: 'grab', flexShrink: 0, '&:active': { cursor: 'grabbing' } }}
+      >
+        <DragIndicatorIcon sx={{ fontSize: 20 }} />
+      </Box>
+
+      {/* Priority badge */}
+      <Box sx={{
+        flexShrink: 0, width: 28, height: 28, borderRadius: '50%',
+        bgcolor: p.bg, border: `1.5px solid ${p.border}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', fontWeight: 700, color: p.text, lineHeight: 1 }}>
+          {insight.priority}
+        </Typography>
+      </Box>
+
+      {/* Title */}
+      <Typography sx={{ flex: 1, fontSize: '0.9rem', fontWeight: 500, color: '#0D1729', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {insight.title}
+      </Typography>
+
+      {/* HCP */}
+      {insight.hcp && (
+        <Typography sx={{ fontSize: '0.78rem', color: '#607D8B', flexShrink: 0, whiteSpace: 'nowrap' }}>
+          {insight.hcp.name}
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+function DragOverlayRow({ insight }: { insight: Insight }) {
+  const p = PRIORITY_COLORS[insight.priority];
+  return (
+    <Box sx={{
+      display: 'flex', alignItems: 'center', gap: 1.25,
+      bgcolor: '#fff', borderRadius: '10px',
+      px: 1.5, py: 1,
+      borderLeft: `3px solid ${p.text}`,
+      boxShadow: '0 12px 32px rgba(63,81,181,0.22)',
+      cursor: 'grabbing',
+    }}>
+      <DragIndicatorIcon sx={{ fontSize: 20, color: '#9FA8DA' }} />
+      <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: p.bg, border: `1.5px solid ${p.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Typography sx={{ fontFamily: 'monospace', fontSize: '0.6rem', fontWeight: 700, color: p.text, lineHeight: 1 }}>{insight.priority}</Typography>
+      </Box>
+      <Typography sx={{ flex: 1, fontSize: '0.9rem', fontWeight: 500, color: '#0D1729', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {insight.title}
+      </Typography>
+    </Box>
+  );
+}
 
 // ─── Active filter chips strip ────────────────────────────────────────────────
 
@@ -87,20 +177,31 @@ export function BoardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { getCardState, highlightedInsightId } = useRealtime();
-  const { filters, setStage, setSearch, togglePriority, clearFilters, clearFilter, buildGraphQLFilter, hasActiveFilters } = useBoardFilters();
+  const { filters, setStage, setSearch, togglePriority, toggleSort, clearFilters, clearFilter, buildGraphQLFilter, hasActiveFilters } = useBoardFilters();
 
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
   const [editingInsight, setEditingInsight] = useState<Insight | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [reorderMode, setReorderMode] = useState(false);
+  const [activeReorderId, setActiveReorderId] = useState<string | null>(null);
+  const [localInsights, setLocalInsights] = useState<Insight[]>([]);
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
 
   const listParentRef = useRef<HTMLDivElement>(null);
 
   const graphqlFilter = buildGraphQLFilter();
 
+  const orderBy = filters.sort === 'recency'
+    ? [{ createdAt: 'DescNullsLast' }]
+    : [{ columnOrder: 'AscNullsLast' }, { createdAt: 'DescNullsLast' }];
+
   const { data, loading, error, fetchMore, refetch } = useQuery<InsightListData>(LIST_INSIGHTS, {
-    variables: { filter: graphqlFilter, first: 30 },
+    variables: { filter: graphqlFilter, first: 30, orderBy },
     fetchPolicy: 'cache-and-network',
     nextFetchPolicy: 'cache-first',
     notifyOnNetworkStatusChange: true,
@@ -122,9 +223,26 @@ export function BoardPage() {
     impact: countsData?.impact?.totalCount ?? 0,
   };
 
-  const insights = data?.insightsCollection?.edges?.map((e) => e.node) ?? [];
+  const allInsights = useMemo(
+    () => data?.insightsCollection?.edges?.map((e) => e.node) ?? [],
+    [data],
+  );
+  // Tag filter applied client-side — InsightsFilter doesn't support insightTagsCollection
+  const insights = useMemo(
+    () => filters.tags.length > 0
+      ? allInsights.filter((ins) => filters.tags.every((tagId) => ins.tags?.some((t) => t.id === tagId)))
+      : allInsights,
+    [allInsights, filters.tags],
+  );
   const hasNextPage = data?.insightsCollection?.pageInfo?.hasNextPage ?? false;
   const activeCount = counts[filters.stage];
+
+  // Keep localInsights in sync with server data when not actively reordering
+  useEffect(() => {
+    if (!reorderMode) setLocalInsights(insights);
+  }, [insights, reorderMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { handleDragEnd } = useDragReorder(localInsights, setLocalInsights);
 
   const loadMore = useCallback(() => {
     if (!hasNextPage || loading) return;
@@ -245,6 +363,13 @@ export function BoardPage() {
             onClearAll={clearFilters}
             hasActiveFilters={hasActiveFilters}
             onOpenAdvanced={() => setShowAdvancedFilter(true)}
+            onSortToggle={toggleSort}
+            showReorder={viewMode === 'list'}
+            reorderMode={reorderMode}
+            onReorderToggle={() => {
+              if (reorderMode) refetch(); // fetch fresh columnOrder from server on exit
+              setReorderMode((v) => !v);
+            }}
           />
         </Box>
         {hasActiveFilters && (
@@ -297,6 +422,30 @@ export function BoardPage() {
                   </Box>
                 )}
               </Box>
+            )}
+          </Box>
+        ) : reorderMode ? (
+          /* Reorder mode — dnd-kit sortable list (no virtualisation) */
+          <Box sx={{ flex: 1, overflowY: 'auto', px: 3, pb: 3 }}>
+            {localInsights.length === 0 ? emptyState : (
+              <DndContext
+                sensors={dndSensors}
+                collisionDetection={closestCenter}
+                onDragStart={({ active }: DragStartEvent) => setActiveReorderId(active.id as string)}
+                onDragEnd={(e) => { handleDragEnd(e); setActiveReorderId(null); }}
+                onDragCancel={() => setActiveReorderId(null)}
+              >
+                <SortableContext items={localInsights.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                  {localInsights.map((insight) => (
+                    <SortableRow key={insight.id} insight={insight} />
+                  ))}
+                </SortableContext>
+                <DragOverlay>
+                  {activeReorderId ? (
+                    <DragOverlayRow insight={localInsights.find((i) => i.id === activeReorderId)!} />
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
             )}
           </Box>
         ) : (

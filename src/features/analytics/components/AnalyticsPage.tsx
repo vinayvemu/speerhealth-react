@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Box, Typography, Grid, Paper, Button, CircularProgress, LinearProgress, Alert, TextField } from '@mui/material';
+import React, { useState, useMemo } from 'react';
+import { Box, Typography, Grid, Paper, Button, CircularProgress, LinearProgress, Alert, TextField, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import {
@@ -36,14 +36,26 @@ function LazyChart({ children }: { children: React.ReactNode }) {
   return <div ref={ref}>{isVisible ? children : <Box sx={{ height: 200 }} />}</div>;
 }
 
-export function AnalyticsPage() {
-  const [dateFrom, setDateFrom] = useState<string>('');
-  const [dateTo, setDateTo] = useState<string>('');
+type Preset = '7d' | '30d' | '90d' | 'all' | 'custom';
 
-  const { data, loading, error, refetch } = useAnalyticsData({
-    dateFrom: dateFrom || null,
-    dateTo: dateTo || null,
-  });
+function isoDate(d: Date) { return d.toISOString().split('T')[0]; }
+function daysAgo(n: number) { return isoDate(new Date(Date.now() - (n - 1) * 86_400_000)); }
+
+export function AnalyticsPage() {
+  const [preset, setPreset] = useState<Preset>('30d');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
+  const { dateFrom, dateTo } = useMemo(() => {
+    const today = isoDate(new Date());
+    if (preset === '7d')  return { dateFrom: daysAgo(7),  dateTo: today };
+    if (preset === '30d') return { dateFrom: daysAgo(30), dateTo: today };
+    if (preset === '90d') return { dateFrom: daysAgo(90), dateTo: today };
+    if (preset === 'all') return { dateFrom: null,         dateTo: null  };
+    return { dateFrom: customFrom || null, dateTo: customTo || null };
+  }, [preset, customFrom, customTo]);
+
+  const { data, loading, error, refetch } = useAnalyticsData({ dateFrom, dateTo });
   const { exportPDF, exporting, progress } = usePdfExport();
   const { user } = useAuth();
 
@@ -71,52 +83,137 @@ export function AnalyticsPage() {
 
   return (
     <Box sx={{ overflowY: 'auto', height: '100%', p: 2, pb: 4 }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 800, color: '#1A237E' }}>Analytics</Typography>
+      {/* ── Header ── */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
+        <Typography variant="h6" sx={{ fontWeight: 800, color: '#1A237E', whiteSpace: 'nowrap' }}>
+          Analytics
+        </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button size="small" startIcon={<RefreshIcon />} onClick={refetch} disabled={loading} aria-label="Refresh analytics">
+          <Button
+            size="small"
+            startIcon={<RefreshIcon />}
+            onClick={refetch}
+            disabled={loading}
+            sx={{ color: '#4B5563', whiteSpace: 'nowrap', textTransform: 'none' }}
+          >
             Refresh
           </Button>
           <Button
             size="small"
             variant="contained"
             startIcon={<PictureAsPdfIcon />}
-            onClick={() => exportPDF(user?.email ?? 'User')}
+            onClick={() => exportPDF(user?.email ?? 'User', { dateFrom, dateTo })}
             disabled={exporting}
-            sx={{ bgcolor: '#3F51B5' }}
-            aria-label="Export PDF report"
+            sx={{ bgcolor: '#3F51B5', whiteSpace: 'nowrap', textTransform: 'none', borderRadius: '8px' }}
           >
             {exporting ? 'Exporting…' : 'Export PDF'}
           </Button>
         </Box>
       </Box>
 
-      {/* Date range filter */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
-        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>Date range:</Typography>
-        <TextField
-          type="date"
+      {/* ── Date range filter bar ── */}
+      <Box sx={{
+        display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5,
+        p: 1.25, px: 1.75,
+        bgcolor: '#F8F9FF',
+        border: '1px solid #E3E7FF',
+        borderRadius: '12px',
+        flexWrap: 'wrap',
+        rowGap: 1,
+      }}>
+        <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: '#6B7280', whiteSpace: 'nowrap' }}>
+          Date range
+        </Typography>
+
+        {/* Preset toggle */}
+        <ToggleButtonGroup
+          value={preset}
+          exclusive
+          onChange={(_, v: Preset | null) => { if (v) setPreset(v); }}
           size="small"
-          label="From"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ width: 150 }}
-        />
-        <TextField
-          type="date"
-          size="small"
-          label="To"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ width: 150 }}
-        />
-        {(dateFrom || dateTo) && (
-          <Button size="small" onClick={() => { setDateFrom(''); setDateTo(''); }}>
-            Clear
-          </Button>
+          sx={{
+            bgcolor: '#fff',
+            border: '1px solid #E0E3FF',
+            borderRadius: '8px',
+            '& .MuiToggleButton-root': {
+              border: 'none',
+              borderRadius: '7px !important',
+              px: 1.5,
+              py: 0.375,
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: '#6B7280',
+              textTransform: 'none',
+              minWidth: 44,
+              '&.Mui-selected': {
+                bgcolor: '#3F51B5',
+                color: '#fff',
+                '&:hover': { bgcolor: '#3949AB' },
+              },
+              '&:hover': { bgcolor: '#EEF0FF' },
+            },
+          }}
+        >
+          <ToggleButton value="7d">7d</ToggleButton>
+          <ToggleButton value="30d">30d</ToggleButton>
+          <ToggleButton value="90d">90d</ToggleButton>
+          <ToggleButton value="all">All</ToggleButton>
+          <ToggleButton value="custom">Custom</ToggleButton>
+        </ToggleButtonGroup>
+
+        {/* Custom pickers — only shown when preset is 'custom' */}
+        {preset === 'custom' && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TextField
+              type="date"
+              size="small"
+              label="From"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{
+                width: 160,
+                '& .MuiOutlinedInput-root': { borderRadius: '8px', bgcolor: '#fff', fontSize: '0.82rem' },
+                '& input[type="date"]': { colorScheme: 'light' },
+                '& input[type="date"]::-webkit-calendar-picker-indicator': {
+                  opacity: 1, cursor: 'pointer', filter: 'brightness(0) saturate(100%) opacity(0.45)',
+                },
+              }}
+            />
+            <Typography sx={{ fontSize: '0.78rem', color: '#9CA3AF', fontWeight: 500 }}>→</Typography>
+            <TextField
+              type="date"
+              size="small"
+              label="To"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{
+                width: 160,
+                '& .MuiOutlinedInput-root': { borderRadius: '8px', bgcolor: '#fff', fontSize: '0.82rem' },
+                '& input[type="date"]': { colorScheme: 'light' },
+                '& input[type="date"]::-webkit-calendar-picker-indicator': {
+                  opacity: 1, cursor: 'pointer', filter: 'brightness(0) saturate(100%) opacity(0.45)',
+                },
+              }}
+            />
+            {(customFrom || customTo) && (
+              <Button
+                size="small"
+                onClick={() => { setCustomFrom(''); setCustomTo(''); }}
+                sx={{ fontSize: '0.78rem', color: '#6B7280', textTransform: 'none', minWidth: 0, p: '4px 8px' }}
+              >
+                Clear
+              </Button>
+            )}
+          </Box>
+        )}
+
+        {/* Active range label for non-custom presets */}
+        {preset !== 'custom' && dateFrom && (
+          <Typography sx={{ fontSize: '0.75rem', color: '#9CA3AF', ml: 'auto', whiteSpace: 'nowrap' }}>
+            {dateFrom} → {dateTo}
+          </Typography>
         )}
       </Box>
 
