@@ -227,12 +227,16 @@ export function BoardPage() {
     () => data?.insightsCollection?.edges?.map((e) => e.node) ?? [],
     [data],
   );
-  // Tag filter applied client-side — InsightsFilter doesn't support insightTagsCollection
+  // Tag filter applied client-side — InsightsFilter doesn't support insightTagsCollection.
+  // filters.tags is a new array ref every render (searchParams.getAll returns a new array),
+  // so we key the memo on the joined string to get a stable reference when values haven't changed.
+  const tagFilterKey = filters.tags.join(',');
   const insights = useMemo(
     () => filters.tags.length > 0
       ? allInsights.filter((ins) => filters.tags.every((tagId) => ins.tags?.some((t) => t.id === tagId)))
       : allInsights,
-    [allInsights, filters.tags],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allInsights, tagFilterKey],
   );
   const hasNextPage = data?.insightsCollection?.pageInfo?.hasNextPage ?? false;
   const activeCount = counts[filters.stage];
